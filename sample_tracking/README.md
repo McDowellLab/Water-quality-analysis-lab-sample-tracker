@@ -1,4 +1,4 @@
-# Sample Tracker
+# # Sample Tracker
 
 A Python desktop application for tracking water quality samples and analysis requests for the Water Resources Research Center.
 
@@ -11,6 +11,19 @@ A Python desktop application for tracking water quality samples and analysis req
 - **Sample Import**: Import sample data from standardized Excel submission forms
 - **Record Editing**: Edit sample information and analysis requests
 - **Database Integration**: Seamlessly connects to Access database
+- **Due Date Tracking**: Set and monitor analysis due dates with calendar view
+- **Data Existence Indicators**: Visual indicators showing when measurement data exists for samples
+
+## Screenshots
+
+### Main Interface
+![Sample Tracker Screenshot](sampletracker.png)
+
+### Calendar View for Due Date Tracking
+![Calendar View](sampletrackercalendar.png)
+
+### Sample Editing with Data Tracking
+![Sample Editing](sampletrackeredit.png)
 
 ## Installation
 
@@ -79,6 +92,21 @@ A Python desktop application for tracking water quality samples and analysis req
 4. Make changes in the "Edit" tab
 5. Click "Save Changes" to update the database
 
+### Due Date Tracking
+
+1. Navigate to the "Calendar" tab to view all samples with due dates
+2. Use the month and year dropdowns or navigation buttons to move between months
+3. Days with due samples display the UNH# of samples due that day
+4. Click on a day to view all samples due on that day in the list below
+5. Double-click a sample in the list to open it for editing
+6. When editing a sample, set or update its due date using the date picker in the edit form
+
+### Data Existence Indicators
+
+- When editing a sample, green "Data exists" indicators appear next to fields where measurement data exists in the database
+- This helps users quickly identify which analyses have been completed
+- Indicators are shown for common analysis types like DOC, TDN, Anions, Cations, etc.
+
 ## File Format
 
 The application expects Excel files with the following sheets:
@@ -110,6 +138,7 @@ To create an executable:
 - **Database Connection Issues**: Ensure the Access database file is in the same folder as the executable and that you have the Microsoft Access Database Driver installed
 - **Import Errors**: Verify that your Excel file follows the required template format
 - **Search Not Returning Results**: Try using partial terms or searching by project instead
+- **Calendar Navigation**: If calendar navigation buttons aren't working in the date picker, try using the dropdown selectors instead
 
 ## License
 
@@ -117,6 +146,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Acknowledgements
 
-- Created for the Water Resources Research Center by Miguel Leon.
+- Created for the Water Resources Research Center by Miguel Leon
 - Built with [CustomTkinter](https://github.com/TomSchimansky/CustomTkinter)
 - Uses [Pandas](https://pandas.pydata.org/) for data processing
+- Calendar functionality implemented with [tkcalendar](https://github.com/j4321/tkcalendar)
