@@ -61,8 +61,8 @@ class SampleTrackerApp(ctk.CTk):
         super().__init__()
 
         # Set appearance mode and default color theme
-        ctk.set_appearance_mode("System")  # Modes: "System" (standard), "Dark", "Light"
-        ctk.set_default_color_theme("blue")  # Themes: "blue" (standard), "green", "dark-blue"
+        ctk.set_appearance_mode("System")
+        ctk.set_default_color_theme("blue")
 
         self.title("WRRC Sample Tracking Application")
         self.geometry("1200x800")
@@ -71,8 +71,10 @@ class SampleTrackerApp(ctk.CTk):
         # Connect to Access database
         self.db_path = get_database_path()
         self.password = "x"
-        # Rename this method call to avoid conflict with Tkinter attributes
         self.data = self._load_data_from_database()
+
+        # Initialize state variables
+        self.analysis_completed_var = ctk.BooleanVar(value=False)
 
         # Create a tabview
         self.create_tabview()
@@ -837,12 +839,15 @@ class SampleTrackerApp(ctk.CTk):
 
             end_date = f"{next_year}-{next_month:02d}-01"
 
-            # Query samples with due dates in this month - using proper Access SQL syntax
-            # Access requires square brackets around table names and specific JOIN syntax
+            # Log what we're doing for debugging
+            print(f"Querying samples due between {start_date} and {end_date}")
+
+            # Only query the specific fields we need rather than using SELECT *
+            # This joins the tables only for samples with due dates in the specified month
             query = """
             SELECT a.[UNH#], s.Sample_Name, s.Collection_Date, a.Due_Date, s.Project
             FROM [WRRC sample analysis requested] AS a 
-            INNER JOIN [WRRC sample info] AS s 
+            LEFT JOIN [WRRC sample info] AS s 
             ON a.[UNH#] = s.[UNH#]
             WHERE a.Due_Date >= ? AND a.Due_Date < ?
             ORDER BY a.Due_Date
@@ -865,6 +870,7 @@ class SampleTrackerApp(ctk.CTk):
             cursor.close()
             conn.close()
 
+            print(f"Found {len(samples)} samples due in {month}/{year}")
             return samples
 
         except Exception as e:
@@ -1072,10 +1078,18 @@ class SampleTrackerApp(ctk.CTk):
         status_label = ctk.CTkLabel(
             button_frame,
             textvariable=self.edit_status_var,
-            font=("Helvetica", 12),
+            font=("Helvetica", 16),
             text_color="blue"
         )
         status_label.pack(side="left", padx=20)
+
+        # Add "Saved" confirmation label with green text (initially hidden)
+        self.saved_label = ctk.CTkLabel(
+            button_frame,
+            text="Saved.",
+            font=("Helvetica", 16, "bold"),
+            text_color="#00aa00"  # Bright green
+        )
 
         # Create a frame for the sample info
         sample_info_frame = ctk.CTkFrame(main_frame)
@@ -1142,86 +1156,94 @@ class SampleTrackerApp(ctk.CTk):
             "Chl_a", "EEMs", "Gases_GC", "Additional", "Due_Date"  # Added Due_Date
         ]
 
+        # Mapping between analysis fields and related tables
+        self.data_table_mapping = {
+            "DOC": "NPOC",
+            "TDN": "TDN",
+            "Anions": "Anion",
+            "Cations": "Cation",
+            "NO3AndNO2": "NO3_Cd",
+            "NH4": "NH4",
+            "PO4OrSRP": "PO4",
+            "SiO2": "SiO2",
+            "TP": "TP"
+        }
+
+        # Create a dictionary to hold the data existence labels
+        self.data_exists_labels = {}
+
         # Create a dedicated frame for the Due Date at the top of the analysis section
+        # In the create_edit_tab method, modify the Due Date section:
+
         # Create a dedicated frame for the Due Date at the top of the analysis section
-        due_date_frame = ctk.CTkFrame(analysis_scroll_frame, fg_color="transparent")
-        due_date_frame.grid(row=0, column=0, columnspan=6, padx=10, pady=(5, 15), sticky="w")
+        # In create_edit_tab method:
+
+        # First, create a dedicated frame just for the completion status at the very top
+        # First, create a dedicated frame just for the completion status at the very top
+        completion_frame = ctk.CTkFrame(analysis_scroll_frame, fg_color="#f0f0f0", corner_radius=8)
+        completion_frame.grid(row=0, column=0, columnspan=6, padx=10, pady=(5, 15), sticky="ew")
+
+        # Left side - Checkbox
+        checkbox_frame = ctk.CTkFrame(completion_frame, fg_color="transparent")
+        checkbox_frame.pack(side="left", fill="both", expand=True, padx=10, pady=10)
+
+        # Completion status header
+        completion_header = ctk.CTkLabel(
+            checkbox_frame,
+            text="Analysis Status:",
+            font=("Helvetica", 14, "bold"),
+            text_color="#333333"
+        )
+        completion_header.pack(side="left", padx=5, pady=10)
+
+        # Create the checkbox with a clear visual style
+        self.analysis_completed_var = ctk.BooleanVar(value=False)
+        self.completed_checkbox = ctk.CTkCheckBox(
+            checkbox_frame,
+            text="Mark Analysis as Completed",
+            variable=self.analysis_completed_var,
+            command=self.toggle_due_date_state,
+            font=("Helvetica", 12, "bold"),
+            text_color="#227722",  # Green text
+            fg_color="#2c974b",  # Green checkbox
+            hover_color="#2da44e",  # Slightly lighter green on hover
+            checkbox_width=24,  # Larger checkbox
+            checkbox_height=24  # Larger checkbox
+        )
+        self.completed_checkbox.pack(side="left", padx=5, pady=10)
+
+        # Right side - Due date
+        due_date_frame = ctk.CTkFrame(completion_frame, fg_color="transparent")
+        due_date_frame.pack(side="right", fill="both", padx=10, pady=10)
 
         # Due Date Label with emphasis
         due_date_label = ctk.CTkLabel(
             due_date_frame,
             text="Analysis Due Date:",
-            font=("Helvetica", 14, "bold"),
+            font=("Helvetica", 12, "bold"),
             text_color="#c22a1f"  # Red color for emphasis
         )
-        due_date_label.pack(side="left", padx=(5, 10))
+        due_date_label.pack(side="left", padx=5)
 
-        # First, create a custom style for the DateEntry and its calendar popup
-        style = ttk.Style()
-        style.configure('my.DateEntry',
-                        font=('Helvetica', 12),
-                        padding=10,
-                        relief="flat",
-                        borderwidth=3)
-
-        # Also configure the calendar buttons to be larger
-        style.configure('Calendar.TButton',
-                        font=('Helvetica', 14),
-                        padding=5,
-                        width=10)
-
-        # Create a ttk.Frame to hold our custom date entry
-        date_container = ttk.Frame(due_date_frame)
-        date_container.pack(side="left", padx=5, pady=5)
-
-        # Custom DateEntry with extra configuration
-        try:
-            # Create the DateEntry with increased size
-            due_date_entry = DateEntry(
-                date_container,
-                width=15,  # Wider
-                height=30,  # Taller (may not work directly on all platforms)
-                background='darkblue',
-                foreground='white',
-                borderwidth=3,
-                font=('Helvetica', 12, 'bold'),  # Bold, larger font
-                date_pattern='yyyy-mm-dd',
-                style='my.DateEntry',
-                # Calendar settings
-                calendar_width=300,  # Make the popup calendar wider
-                calendar_height=200,  # Make the popup calendar taller
-                # Make month/year selection more prominent
-                month_font=('Helvetica', 12, 'bold'),
-                year_font=('Helvetica', 12, 'bold'),
-                heading_font=('Helvetica', 14, 'bold'),
-                selectbackground='#4a6cd4'  # Highlight color
-            )
-            due_date_entry.pack(fill='both', expand=True)
-
-            # Since we can't directly resize the entry in all cases, let's add a visual cue
-            date_helper_label = ctk.CTkLabel(
-                due_date_frame,
-                text="(Click to select a date)",
-                font=("Helvetica", 11, "italic"),
-                text_color="gray"
-            )
-            date_helper_label.pack(side="left", padx=(10, 0))
-
-        except Exception as e:
-            print(f"Error creating custom DateEntry: {str(e)}")
-            # Fallback to basic DateEntry if customization fails
-            due_date_entry = DateEntry(
-                date_container,
-                width=12,
-                background='darkblue',
-                foreground='white',
-                borderwidth=2,
-                date_pattern='yyyy-mm-dd'
-            )
-            due_date_entry.pack(fill='both', expand=True)
+        # Date picker using tkcalendar's DateEntry
+        due_date_entry = DateEntry(
+            due_date_frame,
+            width=12,
+            background='darkblue',
+            foreground='white',
+            borderwidth=2,
+            date_pattern='yyyy-mm-dd'
+        )
+        due_date_entry.pack(side="left", padx=5)
+        due_date_entry.bind("<<DateEntrySelected>>", self.fix_calendar_popup)
 
         # Add the due date entry to our entries dictionary
+        self.analysis_entries = {}
         self.analysis_entries["Due_Date"] = due_date_entry
+        due_date_entry.bind("<<DateEntrySelected>>", self.fix_calendar_popup)
+
+        # Start other fields at row 2 now
+        row_offset = 2  # Start after completion status and due date rows
 
         # Create entry widgets for the remaining analysis fields
         row_offset = 1  # Start after the due date row
@@ -1234,9 +1256,25 @@ class SampleTrackerApp(ctk.CTk):
             row = (i // 3) + row_offset
             col = i % 3 * 2
 
+            # Frame to hold the label and data exists indicator
+            field_frame = ctk.CTkFrame(analysis_scroll_frame, fg_color="transparent")
+            field_frame.grid(row=row, column=col, padx=(10, 5), pady=5, sticky="e")
+
             # Label
-            label = ctk.CTkLabel(analysis_scroll_frame, text=f"{field}:")
-            label.grid(row=row, column=col, padx=(10, 5), pady=5, sticky="e")
+            label = ctk.CTkLabel(field_frame, text=f"{field}:")
+            label.pack(side="left", padx=0)
+
+            # Data exists label - will be shown/hidden during form population
+            if field in self.data_table_mapping:
+                data_exists_label = ctk.CTkLabel(
+                    field_frame,
+                    text="Data exists",
+                    text_color="#2ecc71",  # Green color
+                    font=("Helvetica", 16)
+                )
+                self.data_exists_labels[field] = data_exists_label
+                # Initially hidden, will be shown when data exists
+                # data_exists_label.pack(side="left", padx=(3, 0))
 
             # Entry
             entry = ctk.CTkEntry(analysis_scroll_frame, width=150)
@@ -1262,6 +1300,23 @@ class SampleTrackerApp(ctk.CTk):
         )
         cancel_button.pack(side="left", padx=10)
 
+    def toggle_due_date_state(self):
+        """Toggle the due date entry state based on the completed checkbox."""
+        try:
+            due_date_entry = self.analysis_entries.get("Due_Date")
+            if not due_date_entry:
+                return
+
+            if self.analysis_completed_var.get():
+                # Analysis is completed, disable the date entry
+                due_date_entry.configure(state="disabled")
+                print("Due date disabled - analysis completed")
+            else:
+                # Analysis is not completed, enable the date entry
+                due_date_entry.configure(state="normal")
+                print("Due date enabled - analysis not completed")
+        except Exception as e:
+            print(f"Error toggling due date state: {str(e)}")
     # Add this method to your class:
     def fix_calendar_popup(self, event=None):
         """Ensure the calendar popup has enough space for navigation buttons."""
@@ -1383,209 +1438,6 @@ class SampleTrackerApp(ctk.CTk):
             print(f"Error loading analysis data: {str(e)}")
             self.analysis_data = None
 
-    # Add the create_edit_tab method
-    def create_edit_tab(self):
-        """Create the edit tab contents."""
-        edit_tab = self.tabview.tab("Edit")
-
-        # Create a main frame for the edit tab
-        main_frame = ctk.CTkFrame(edit_tab)
-        main_frame.pack(fill="both", expand=True, padx=10, pady=10)
-
-        # Create buttons for saving and canceling at the top
-        button_frame = ctk.CTkFrame(main_frame)
-        button_frame.pack(fill="x", padx=10, pady=10)
-
-        save_button = ctk.CTkButton(
-            button_frame,
-            text="Save Changes",
-            command=self.save_edited_record
-        )
-        save_button.pack(side="left", padx=10)
-
-        cancel_button = ctk.CTkButton(
-            button_frame,
-            text="Cancel",
-            command=lambda: self.tabview.set("Search")
-        )
-        cancel_button.pack(side="left", padx=10)
-
-        # Status label
-        self.edit_status_var = ctk.StringVar()
-        self.edit_status_var.set("Select a record from the Search tab to edit")
-
-        status_label = ctk.CTkLabel(
-            button_frame,
-            textvariable=self.edit_status_var,
-            font=("Helvetica", 12),
-            text_color="blue"
-        )
-        status_label.pack(side="left", padx=20)
-
-        # Create a frame for the sample info
-        sample_info_frame = ctk.CTkFrame(main_frame)
-        sample_info_frame.pack(fill="x", padx=10, pady=10)
-
-        # Sample Info Title
-        sample_info_title = ctk.CTkLabel(
-            sample_info_frame,
-            text="Sample Information",
-            font=("Helvetica", 16, "bold")
-        )
-        sample_info_title.pack(pady=(5, 10))
-
-        # Create a scrollable frame for the sample info fields
-        sample_scroll_frame = ctk.CTkScrollableFrame(sample_info_frame, height=250)
-        sample_scroll_frame.pack(fill="x", padx=10, pady=10)
-
-        # Define common sample info fields
-        self.sample_info_fields = [
-            "UNH#", "Sample_Name", "Collection_Date", "Collection_Time",
-            "Project", "Sub_Project", "Sub_ProjectA", "Sub_ProjectB",
-            "Sample_Type", "Field_Notes", "pH", "Cond", "Spec_Cond",
-            "DO_Conc", "DO%", "Temperature", "Salinity"
-        ]
-
-        # Create entry widgets for each field
-        self.sample_info_entries = {}
-
-        for i, field in enumerate(self.sample_info_fields):
-            row = i // 2
-            col = i % 2 * 2
-
-            # Label
-            label = ctk.CTkLabel(sample_scroll_frame, text=f"{field}:")
-            label.grid(row=row, column=col, padx=(10, 5), pady=5, sticky="e")
-
-            # Entry
-            entry = ctk.CTkEntry(sample_scroll_frame, width=200)
-            entry.grid(row=row, column=col + 1, padx=(0, 10), pady=5, sticky="w")
-
-            self.sample_info_entries[field] = entry
-
-        # Create a frame for the analysis info
-        analysis_frame = ctk.CTkFrame(main_frame)
-        analysis_frame.pack(fill="x", padx=10, pady=10)
-
-        # Analysis Info Title
-        analysis_title = ctk.CTkLabel(
-            analysis_frame,
-            text="Analysis Information",
-            font=("Helvetica", 16, "bold")
-        )
-        analysis_title.pack(pady=(5, 10))
-
-        # Create a scrollable frame for the analysis fields
-        analysis_scroll_frame = ctk.CTkScrollableFrame(analysis_frame, height=250)
-        analysis_scroll_frame.pack(fill="x", padx=10, pady=10)
-
-        # Define common analysis fields
-        self.analysis_fields = [
-            "Containers", "Filtered", "Preservation", "Filter_Volume",
-            "DOC", "TDN", "Anions", "Cations", "NO3AndNO2", "NO2", "NH4",
-            "PO4OrSRP", "SiO2", "TN", "TP", "TDP", "TSS", "PCAndPN",
-            "Chl_a", "EEMs", "Gases_GC", "Additional", "Due_Date"  # Added Due_Date
-        ]
-
-        # Mapping between analysis fields and related tables
-        self.data_table_mapping = {
-            "DOC": "NPOC",
-            "TDN": "TDN",
-            "Anions": "Anion",
-            "Cations": "Cation",
-            "NO3AndNO2": "NO3_Cd",
-            "NH4": "NH4",
-            "PO4OrSRP": "PO4",
-            "SiO2": "SiO2",
-            "TP": "TP"
-        }
-
-        # Create a dictionary to hold the data existence labels
-        self.data_exists_labels = {}
-
-        # Create a dedicated frame for the Due Date at the top of the analysis section
-        due_date_frame = ctk.CTkFrame(analysis_scroll_frame, fg_color="transparent")
-        due_date_frame.grid(row=0, column=0, columnspan=6, padx=10, pady=(5, 15), sticky="w")
-
-        # Due Date Label with emphasis
-        due_date_label = ctk.CTkLabel(
-            due_date_frame,
-            text="Analysis Due Date:",
-            font=("Helvetica", 16, "bold"),
-            text_color="#c22a1f"  # Red color for emphasis
-        )
-        due_date_label.pack(side="left", padx=(5, 10))
-
-        # Date picker using tkcalendar's DateEntry
-        due_date_entry = DateEntry(
-            due_date_frame,
-            width=12,
-            background='darkblue',
-            foreground='white',
-            borderwidth=2,
-            date_pattern='yyyy-mm-dd'
-        )
-        due_date_entry.pack(side="left", padx=5)
-
-        # Add the due date entry to our entries dictionary
-        self.analysis_entries = {}
-        self.analysis_entries["Due_Date"] = due_date_entry
-        due_date_entry.bind("<<DateEntrySelected>>", self.fix_calendar_popup)
-        # Create entry widgets for the remaining analysis fields
-        row_offset = 1  # Start after the due date row
-
-        for i, field in enumerate(self.analysis_fields):
-            # Skip Due_Date as we've already added it
-            if field == "Due_Date":
-                continue
-
-            row = (i // 3) + row_offset
-            col = i % 3 * 2
-
-            # Frame to hold the label and data exists indicator
-            field_frame = ctk.CTkFrame(analysis_scroll_frame, fg_color="transparent")
-            field_frame.grid(row=row, column=col, padx=(10, 5), pady=5, sticky="e")
-
-            # Label
-            label = ctk.CTkLabel(field_frame, text=f"{field}:")
-            label.pack(side="left", padx=0)
-
-            # Data exists label - will be shown/hidden during form population
-            if field in self.data_table_mapping:
-                data_exists_label = ctk.CTkLabel(
-                    field_frame,
-                    text="Data exists",
-                    text_color="#2ecc71",  # Green color
-                    font=("Helvetica", 14)
-                )
-                self.data_exists_labels[field] = data_exists_label
-                # Initially hidden, will be shown when data exists
-                # data_exists_label.pack(side="left", padx=(3, 0))
-
-            # Entry
-            entry = ctk.CTkEntry(analysis_scroll_frame, width=150)
-            entry.grid(row=row, column=col + 1, padx=(0, 10), pady=5, sticky="w")
-
-            self.analysis_entries[field] = entry
-
-        # Create buttons for saving and canceling at the bottom
-        bottom_button_frame = ctk.CTkFrame(main_frame)
-        bottom_button_frame.pack(fill="x", padx=10, pady=10)
-
-        save_button = ctk.CTkButton(
-            bottom_button_frame,
-            text="Save Changes",
-            command=self.save_edited_record
-        )
-        save_button.pack(side="left", padx=10)
-
-        cancel_button = ctk.CTkButton(
-            bottom_button_frame,
-            text="Cancel",
-            command=lambda: self.tabview.set("Search")
-        )
-        cancel_button.pack(side="left", padx=10)
-
     # Add the populate_edit_form method
     def populate_edit_form(self):
         """Populate the edit form with the selected record data."""
@@ -1641,32 +1493,71 @@ class SampleTrackerApp(ctk.CTk):
 
                     # Special handling for Due_Date which uses DateEntry
                     if field == "Due_Date" and hasattr(entry, 'set_date'):
-                        if value and str(value).strip():
-                            try:
-                                # Try to parse the date
-                                if isinstance(value, datetime.date):
-                                    due_date = value
-                                else:
-                                    # Try different date formats
-                                    for fmt in ['%Y-%m-%d', '%m/%d/%Y', '%d/%m/%Y']:
-                                        try:
-                                            due_date = datetime.datetime.strptime(str(value), fmt).date()
-                                            break
-                                        except:
-                                            continue
-                                    else:
-                                        # If no format worked, default to today
-                                        due_date = datetime.date.today()
+                        try:
+                            if value and str(value).strip():
+                                # There is a due date, so analysis is not completed
+                                if hasattr(self, 'analysis_completed_var'):
+                                    self.analysis_completed_var.set(False)
+                                if hasattr(self, 'completed_checkbox') and hasattr(self.completed_checkbox, 'deselect'):
+                                    self.completed_checkbox.deselect()
+                                entry.configure(state="normal")
 
-                                # Set the date in the widget
-                                entry.set_date(due_date)
-                            except Exception as e:
-                                print(f"Error setting date for Due_Date: {str(e)}")
-                                # Default to today if there's an error
+                                try:
+                                    # Try to parse the date
+                                    if isinstance(value, datetime.date):
+                                        due_date = value
+                                    else:
+                                        # Try different date formats
+                                        for fmt in ['%Y-%m-%d', '%m/%d/%Y', '%d/%m/%Y']:
+                                            try:
+                                                due_date = datetime.datetime.strptime(str(value), fmt).date()
+                                                break
+                                            except:
+                                                continue
+                                        else:
+                                            # If no format worked, default to today
+                                            due_date = datetime.date.today()
+
+                                    # Set the date in the widget
+                                    entry.set_date(due_date)
+                                except Exception as e:
+                                    print(f"Error setting date for Due_Date: {str(e)}")
+                                    # Default to today if there's an error
+                                    entry.set_date(datetime.date.today())
+                            else:
+                                # No due date - analysis is completed
+                                if hasattr(self, 'analysis_completed_var'):
+                                    self.analysis_completed_var.set(True)
+                                if hasattr(self, 'completed_checkbox') and hasattr(self.completed_checkbox, 'select'):
+                                    self.completed_checkbox.select()
+                                entry.configure(state="disabled")
+                        except Exception as e:
+                            print(f"Error handling due date: {str(e)}")
+                            # Use safe defaults
+                            if hasattr(self, 'analysis_completed_var'):
+                                self.analysis_completed_var.set(False)
+                            if hasattr(entry, 'set_date'):
                                 entry.set_date(datetime.date.today())
+                                entry.configure(state="normal")
                     else:
                         # Regular entry widget
                         entry.insert(0, str(value) if value is not None else "")
+
+        # Handle the case where a due date isn't present in the analysis data
+        if self.analysis_data is None or "Due_Date" not in self.analysis_data or not self.analysis_data["Due_Date"]:
+            try:
+                # No analysis data or no due date - mark as completed
+                if hasattr(self, 'analysis_completed_var'):
+                    self.analysis_completed_var.set(True)
+                if hasattr(self, 'completed_checkbox') and hasattr(self.completed_checkbox, 'select'):
+                    self.completed_checkbox.select()
+
+                # Disable the date entry widget
+                due_date_entry = self.analysis_entries.get("Due_Date")
+                if due_date_entry and hasattr(due_date_entry, 'configure'):
+                    due_date_entry.configure(state="disabled")
+            except Exception as e:
+                print(f"Error setting defaults for missing due date: {str(e)}")
 
         # Update status
         unh_id = self.selected_record.get("UNH#", "")
@@ -1677,16 +1568,6 @@ class SampleTrackerApp(ctk.CTk):
         """Save the edited record back to the database."""
         if not self.selected_record:
             messagebox.showwarning("No Record", "No record is selected for editing.")
-            return
-
-        # Confirm save
-        confirm = messagebox.askyesno(
-            "Confirm Save",
-            "Are you sure you want to save these changes to the database?"
-        )
-
-        if not confirm:
-            self.edit_status_var.set("Save cancelled")
             return
 
         try:
@@ -1712,14 +1593,19 @@ class SampleTrackerApp(ctk.CTk):
                 # Commit transaction
                 conn.commit()
                 self.edit_status_var.set("Record updated successfully")
-                messagebox.showinfo("Success", "Record updated successfully")
+
+                # Show the "Saved" message
+                self.saved_label.pack(side="right", padx=20)
+
+                # Schedule the label to disappear after 3 seconds
+                self.after(3000, lambda: self.saved_label.pack_forget())
 
                 # Refresh the data
                 self.data = self._load_data_from_database()
                 self.populate_treeview(self.data)
 
-                # Switch back to search tab
-                self.tabview.set("Search")
+                # Switch back to search tab after a brief delay to show the "Saved" message
+                # self.after(1500, lambda: self.tabview.set("Search"))
             else:
                 conn.rollback()
                 self.edit_status_var.set("No changes were made")
@@ -1813,8 +1699,8 @@ class SampleTrackerApp(ctk.CTk):
                 has_new_values = False
                 for field, entry in self.analysis_entries.items():
                     if field == "Due_Date":
-                        # Handle DateEntry widget
-                        if hasattr(entry, 'get_date'):
+                        # If analysis is not completed, check if date entry has value
+                        if not self.analysis_completed_var.get() and hasattr(entry, 'get_date'):
                             has_new_values = True
                             break
                     elif entry.get().strip():
@@ -1835,22 +1721,39 @@ class SampleTrackerApp(ctk.CTk):
                 # Get the current value from the analysis data
                 current_value = self.analysis_data.get(field, "")
 
-                # For Due_Date, get value from DateEntry widget
-                if field == "Due_Date" and hasattr(entry, 'get_date'):
-                    new_value = entry.get_date().strftime('%Y-%m-%d')
+                # Special handling for Due_Date field
+                if field == "Due_Date":
+                    if self.analysis_completed_var.get():
+                        # Analysis is completed, set Due_Date to NULL
+                        # Only add to update if current value is not already NULL
+                        if current_value is not None and current_value != "":
+                            print(f"Setting Due_Date to NULL for UNH# {unh_id} (analysis completed)")
+                            set_clauses.append(f"[{field}] = ?")
+                            params.append(None)  # This will set it to NULL in the database
+                    elif hasattr(entry, 'get_date'):
+                        # Analysis not completed, get date from DateEntry
+                        try:
+                            new_value = entry.get_date().strftime('%Y-%m-%d')
+                            # If different from current, add to update
+                            if str(current_value) != new_value:
+                                print(f"Updating Due_Date to {new_value} for UNH# {unh_id}")
+                                set_clauses.append(f"[{field}] = ?")
+                                params.append(new_value)
+                        except Exception as e:
+                            print(f"Error getting date from DateEntry: {str(e)}")
                 else:
-                    # For regular entry widgets
+                    # Regular fields
                     new_value = entry.get().strip()
 
-                # If there's a difference, add to the update
-                if str(current_value) != new_value:
-                    set_clauses.append(f"[{field}] = ?")
+                    # If there's a difference, add to the update
+                    if str(current_value) != new_value:
+                        set_clauses.append(f"[{field}] = ?")
 
-                    # Handle empty strings as NULL for appropriate fields
-                    if not new_value:
-                        params.append(None)
-                    else:
-                        params.append(new_value)
+                        # Handle empty strings as NULL for appropriate fields
+                        if not new_value:
+                            params.append(None)
+                        else:
+                            params.append(new_value)
 
             # If no changes, return early
             if not set_clauses:
@@ -1866,6 +1769,7 @@ class SampleTrackerApp(ctk.CTk):
 
             # Execute the query
             cursor.execute(query, params)
+            print(f"Successfully updated analysis data for UNH# {unh_id}")
 
             return True
 
@@ -1882,11 +1786,13 @@ class SampleTrackerApp(ctk.CTk):
 
             for field, entry in self.analysis_entries.items():
                 # Handle Due_Date field which uses DateEntry
-                if field == "Due_Date" and hasattr(entry, 'get_date'):
-                    due_date = entry.get_date().strftime('%Y-%m-%d')
-                    if due_date:
-                        columns.append(f"[{field}]")
-                        values.append(due_date)
+                if field == "Due_Date":
+                    if not self.analysis_completed_var.get() and hasattr(entry, 'get_date'):
+                        due_date = entry.get_date().strftime('%Y-%m-%d')
+                        if due_date:
+                            columns.append(f"[{field}]")
+                            values.append(due_date)
+                    # If analysis is completed, don't add Due_Date (it will be NULL by default)
                 else:
                     # Regular entry fields
                     value = entry.get().strip()
@@ -1912,7 +1818,6 @@ class SampleTrackerApp(ctk.CTk):
         except Exception as e:
             print(f"Error inserting analysis info: {str(e)}")
             raise
-
 
     def _insert_new_analysis_record(self, cursor, unh_id):
         """Insert a new record in the WRRC sample analysis requested table."""
