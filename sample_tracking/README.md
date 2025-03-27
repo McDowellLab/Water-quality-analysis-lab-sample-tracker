@@ -117,6 +117,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Acknowledgements
 
-- Created for the Water Resources Research Center
+- Created for the Water Resources Research Center by Miguel Leon.
 - Built with [CustomTkinter](https://github.com/TomSchimansky/CustomTkinter)
 - Uses [Pandas](https://pandas.pydata.org/) for data processing
