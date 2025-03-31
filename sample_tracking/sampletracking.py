@@ -2024,78 +2024,184 @@ class SampleTrackerApp(ctk.CTk):
         self.populate_treeview(self.data)
 
     def create_import_tab(self):
-        """Create the import tab contents."""
+        """Create the import tab contents with support for both submission and log book formats."""
         import_tab = self.tabview.tab("Import")
 
         # Create frames for the import tab
         instruction_frame = ctk.CTkFrame(import_tab)
         instruction_frame.pack(fill="x", padx=10, pady=10)
 
-        # Add project input field at the top
-        project_frame = ctk.CTkFrame(import_tab)
-        project_frame.pack(fill="x", padx=10, pady=5)
-
-        project_label = ctk.CTkLabel(project_frame, text="Project Name:")
-        project_label.grid(row=0, column=0, padx=10, pady=10, sticky="w")
-
-        self.project_entry = ctk.CTkEntry(project_frame, width=300)
-        self.project_entry.grid(row=0, column=1, padx=10, pady=10, sticky="w")
-
-        file_frame = ctk.CTkFrame(import_tab)
-        file_frame.pack(fill="x", padx=10, pady=10)
-
-        preview_frame = ctk.CTkFrame(import_tab)
-        preview_frame.pack(fill="both", expand=True, padx=10, pady=10)
-
         # Instructions
         instruction_label = ctk.CTkLabel(
             instruction_frame,
-            text="Import Sample Submissions from Excel",
+            text="Import Sample Data",
             font=("Helvetica", 16, "bold")
         )
         instruction_label.pack(pady=5)
 
         description_label = ctk.CTkLabel(
             instruction_frame,
-            text="Enter a Project Name and upload an Excel file with 'Project Information' and 'Sample Information' sheets to import sample data.",
+            text="Select an Excel file format to import. You can import from either a sample submission form or a log book file.",
             wraplength=800
         )
         description_label.pack(pady=5)
 
-        # File selection
-        file_label = ctk.CTkLabel(file_frame, text="Select Excel File:")
-        file_label.grid(row=0, column=0, padx=10, pady=10, sticky="w")
+        # ================ CUSTOM TABS IMPLEMENTATION ================
+        # Create a frame to hold our custom tab system
+        tab_system_frame = ctk.CTkFrame(import_tab)
+        tab_system_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-        self.file_path_var = ctk.StringVar()
-        file_entry = ctk.CTkEntry(file_frame, textvariable=self.file_path_var, width=500)
-        file_entry.grid(row=0, column=1, padx=10, pady=10)
+        # Create a frame for tab buttons
+        tab_buttons_frame = ctk.CTkFrame(tab_system_frame, fg_color="transparent")
+        tab_buttons_frame.pack(fill="x", padx=0, pady=0)
 
-        browse_button = ctk.CTkButton(
-            file_frame,
-            text="Browse",
-            command=self.browse_excel_file
+        # Create a frame for tab content
+        self.tab_content_frame = ctk.CTkFrame(tab_system_frame)
+        self.tab_content_frame.pack(fill="both", expand=True, padx=0, pady=(0, 10))
+
+        # Create the content frames for each tab
+        self.submission_content_frame = ctk.CTkFrame(self.tab_content_frame)
+        self.logbook_content_frame = ctk.CTkFrame(self.tab_content_frame)
+
+        # Variables to keep track of the active tab
+        self.active_tab = ctk.StringVar(value="submission")
+
+        # Function to switch between tabs
+        def switch_tab(tab_name):
+            # Hide all tab content frames
+            self.submission_content_frame.pack_forget()
+            self.logbook_content_frame.pack_forget()
+
+            # Update button colors based on active tab
+            if tab_name == "submission":
+                submission_tab_button.configure(fg_color="#27ae60", hover_color="#2ecc71")  # Active green
+                logbook_tab_button.configure(fg_color="#1e8449", hover_color="#27ae60")  # Inactive green
+                self.submission_content_frame.pack(fill="both", expand=True, padx=0, pady=0)
+                self.active_tab.set("submission")
+            else:  # logbook
+                submission_tab_button.configure(fg_color="#1e8449", hover_color="#27ae60")  # Inactive green
+                logbook_tab_button.configure(fg_color="#27ae60", hover_color="#2ecc71")  # Active green
+                self.logbook_content_frame.pack(fill="both", expand=True, padx=0, pady=0)
+                self.active_tab.set("logbook")
+
+        # Create the tab buttons
+        submission_tab_button = ctk.CTkButton(
+            tab_buttons_frame,
+            text="Sample Submission Format",
+            font=("Helvetica", 16),
+            fg_color="#27ae60",  # Active green
+            hover_color="#2ecc71",
+            text_color="white",
+            corner_radius=6,
+            command=lambda: switch_tab("submission")
         )
-        browse_button.grid(row=0, column=2, padx=10, pady=10)
+        submission_tab_button.pack(side="left", padx=(0, 5), pady=0, fill="x", expand=True)
 
-        # Preview and import buttons
-        button_frame = ctk.CTkFrame(file_frame)
-        button_frame.grid(row=1, column=0, columnspan=3, pady=10)
+        logbook_tab_button = ctk.CTkButton(
+            tab_buttons_frame,
+            text="Log Book Format",
+            font=("Helvetica", 16),
+            fg_color="#1e8449",  # Inactive green
+            hover_color="#27ae60",
+            text_color="white",
+            corner_radius=6,
+            command=lambda: switch_tab("logbook")
+        )
+        logbook_tab_button.pack(side="left", padx=0, pady=0, fill="x", expand=True)
 
-        preview_button = ctk.CTkButton(
-            button_frame,
+        # Initially show the submission tab
+        self.submission_content_frame.pack(fill="both", expand=True, padx=0, pady=0)
+
+        # ================ SUBMISSION TAB CONTENT ================
+        # Add project input field for Sample Submission format only
+        submission_project_frame = ctk.CTkFrame(self.submission_content_frame)
+        submission_project_frame.pack(fill="x", padx=10, pady=10)
+
+        project_label = ctk.CTkLabel(submission_project_frame, text="Project Name:")
+        project_label.grid(row=0, column=0, padx=10, pady=10, sticky="w")
+
+        self.project_entry = ctk.CTkEntry(submission_project_frame, width=300)
+        self.project_entry.grid(row=0, column=1, padx=10, pady=10, sticky="w")
+
+        submission_file_frame = ctk.CTkFrame(self.submission_content_frame)
+        submission_file_frame.pack(fill="x", padx=10, pady=10)
+
+        # File selection for submission format
+        sub_file_label = ctk.CTkLabel(submission_file_frame, text="Select Submission Excel File:")
+        sub_file_label.grid(row=0, column=0, padx=10, pady=10, sticky="w")
+
+        self.submission_file_path_var = ctk.StringVar()
+        sub_file_entry = ctk.CTkEntry(submission_file_frame, textvariable=self.submission_file_path_var, width=500)
+        sub_file_entry.grid(row=0, column=1, padx=10, pady=10)
+
+        sub_browse_button = ctk.CTkButton(
+            submission_file_frame,
+            text="Browse",
+            command=lambda: self.browse_excel_file("submission")
+        )
+        sub_browse_button.grid(row=0, column=2, padx=10, pady=10)
+
+        # Preview and import buttons for submission format
+        sub_button_frame = ctk.CTkFrame(submission_file_frame)
+        sub_button_frame.grid(row=1, column=0, columnspan=3, pady=10)
+
+        sub_preview_button = ctk.CTkButton(
+            sub_button_frame,
             text="Preview Data",
             command=self.preview_excel_data
         )
-        preview_button.pack(side="left", padx=10)
+        sub_preview_button.pack(side="left", padx=10)
 
-        import_button = ctk.CTkButton(
-            button_frame,
+        sub_import_button = ctk.CTkButton(
+            sub_button_frame,
             text="Import Data",
             command=self.import_excel_data
         )
-        import_button.pack(side="left", padx=10)
+        sub_import_button.pack(side="left", padx=10)
 
-        # Preview area using notebook with tabs for Project and Sample data
+        # ================ LOG BOOK TAB CONTENT ================
+        logbook_file_frame = ctk.CTkFrame(self.logbook_content_frame)
+        logbook_file_frame.pack(fill="x", padx=10, pady=10)
+
+        # File selection for log book format
+        log_file_label = ctk.CTkLabel(logbook_file_frame, text="Select Log Book Excel File:")
+        log_file_label.grid(row=0, column=0, padx=10, pady=10, sticky="w")
+
+        self.logbook_file_path_var = ctk.StringVar()
+        log_file_entry = ctk.CTkEntry(logbook_file_frame, textvariable=self.logbook_file_path_var, width=500)
+        log_file_entry.grid(row=0, column=1, padx=10, pady=10)
+
+        log_browse_button = ctk.CTkButton(
+            logbook_file_frame,
+            text="Browse",
+            command=lambda: self.browse_excel_file("logbook")
+        )
+        log_browse_button.grid(row=0, column=2, padx=10, pady=10)
+
+        # Preview and import buttons for log book format
+        log_button_frame = ctk.CTkFrame(logbook_file_frame)
+        log_button_frame.grid(row=1, column=0, columnspan=3, pady=10)
+
+        log_preview_button = ctk.CTkButton(
+            log_button_frame,
+            text="Preview Data",
+            command=self.preview_logbook_data
+        )
+        log_preview_button.pack(side="left", padx=10)
+
+        log_import_button = ctk.CTkButton(
+            log_button_frame,
+            text="Import Data",
+            command=self.import_logbook_data
+        )
+        log_import_button.pack(side="left", padx=10)
+
+        # ================ PREVIEW AREA ================
+        # Common preview area using notebook with tabs
+        preview_frame = ctk.CTkFrame(import_tab)
+        preview_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # Create a basic notebook for the preview (doesn't need fancy styling)
         preview_notebook = ttk.Notebook(preview_frame)
         preview_notebook.pack(fill="both", expand=True, padx=5, pady=5)
 
@@ -2148,24 +2254,751 @@ class SampleTrackerApp(ctk.CTk):
         )
         status_label.pack(pady=5)
 
-    def browse_excel_file(self):
-        """Open a file dialog to select an Excel file."""
+    def browse_excel_file(self, file_type="submission"):
+        """Open a file dialog to select an Excel file for the specified import type."""
+        if file_type == "submission":
+            title = "Select Sample Submission Excel File"
+        else:  # logbook
+            title = "Select Log Book Excel File"
+
         file_path = filedialog.askopenfilename(
-            title="Select Sample Submission Excel File",
+            title=title,
             filetypes=[("Excel Files", "*.xls *.xlsx")]
         )
 
         if file_path:
-            self.file_path_var.set(file_path)
-            self.import_status_var.set(f"File selected: {os.path.basename(file_path)}")
-            print(f"Selected file: {file_path}")
+            if file_type == "submission":
+                self.submission_file_path_var.set(file_path)
+            else:  # logbook
+                self.logbook_file_path_var.set(file_path)
 
-    # Now modify the preview_excel_data method to NOT auto-update the project textbox:
-    def preview_excel_data(self):
-        """Preview the data from the selected Excel file."""
-        file_path = self.file_path_var.get()
+            self.import_status_var.set(f"{file_type.capitalize()} file selected: {os.path.basename(file_path)}")
+            print(f"Selected {file_type} file: {file_path}")
+
+    def preview_logbook_data(self):
+        """Preview the data from the selected Log Book Excel file."""
+        file_path = self.logbook_file_path_var.get()
         if not file_path:
-            messagebox.showwarning("No File Selected", "Please select an Excel file first.")
+            messagebox.showwarning("No File Selected", "Please select a Log Book Excel file first.")
+            return
+
+        try:
+            # Load the Excel file
+            self.import_status_var.set("Loading Log Book file for preview...")
+
+            # Try to read the Excel file
+            log_data = self.read_logbook_excel(file_path)
+
+            if log_data is None or log_data.empty:
+                self.import_status_var.set("Error: Could not read the Log Book Excel file or it's empty.")
+                return
+
+            # Extract sample data for validation
+            samples = self.extract_logbook_data(log_data)
+
+            # Update the status
+            self.import_status_var.set(f"Preview ready. Found {len(samples)} samples in Log Book format.")
+
+            # Populate the preview treeviews
+            self.populate_logbook_preview(log_data, samples)
+
+        except Exception as e:
+            error_message = f"Error previewing Log Book file: {str(e)}"
+            print(error_message)
+            print(traceback.format_exc())
+            messagebox.showerror("Preview Error", error_message)
+            self.import_status_var.set("Error previewing file. See console for details.")
+
+    def read_logbook_excel(self, file_path):
+        """Read the Log Book Excel file and return a DataFrame."""
+        try:
+            # Read the Excel file
+            log_data = pd.read_excel(file_path)
+
+            # Clean up the dataframe
+            log_data = log_data.fillna("")
+
+            # Print some info about the data
+            print(f"Log Book DataFrame has {len(log_data)} rows and {len(log_data.columns)} columns")
+            print(f"Column names: {log_data.columns.tolist()}")
+
+            return log_data
+
+        except Exception as e:
+            error_message = f"Error reading Log Book Excel file: {str(e)}"
+            print(error_message)
+            print(traceback.format_exc())
+            messagebox.showerror("Excel Import Error", error_message)
+            return None
+
+    def extract_logbook_data(self, log_data):
+        """
+        Extract sample information from the Log Book DataFrame.
+        Returns a list of dictionaries, each containing a sample's information.
+        Skip rows where only UNH# is populated.
+        """
+        samples = []
+
+        # Check if DataFrame is empty
+        if log_data.empty:
+            return samples
+
+        # Print column names for debugging
+        print("Actual column names in Log Book DataFrame:")
+        for col in log_data.columns:
+            print(f"  {col}")
+
+        # Define fields we're interested in
+        field_mappings = {
+            'UNH#': 'unh_id',
+            'Sample_Name': 'sample_name',
+            'Collection_Date': 'collection_date',
+            'Collection_Time': 'collection_time',
+            'Project': 'project',
+            'Sub_Project': 'sub_project',
+            'Sub_ProjectA': 'sub_projecta',
+            'Sub_ProjectB': 'sub_projectb',
+            'BatchID': 'batch_id',
+            'Frozen_Received': 'frozen_received',
+            'Refrigerated_Received': 'refrigerated_received',
+            'Field_Notes': 'field_notes',
+            'Lab_Notes': 'lab_notes',
+            'Sample_Type': 'sample_type',
+            'Logger': 'logger',
+            'pH': 'ph',
+            'Cond': 'cond',
+            'Spec_Cond': 'spec_cond',
+            'DO_Conc': 'do_conc',
+            'DO%': 'do_percent',
+            'Temperature': 'temperature',
+            'Turbidity': 'turbidity',
+            'Salinity': 'salinity',
+            'DTWT': 'dtwt',
+            'Volume': 'volume',
+            'Dilution': 'dilution',
+            'Start Date/Time': 'start_datetime',
+            'Atm_Pressure_mb': 'atm_pressure',
+            'ORP_mV': 'orp_mv'
+        }
+
+        # List of possible analysis columns
+        analysis_names = [
+            'DOC', 'TDN', 'Anions', 'Cations', 'NO3+NO2', 'NO2', 'NH4',
+            'PO4/SRP', 'SiO2', 'TN', 'TP', 'TDP', 'TSS', 'PC/PN',
+            'Chl a', 'EEMs', 'Gases - GC', 'ICPOES', 'Additional'
+        ]
+
+        # Find columns that match our field mappings
+        column_mapping = {}
+        for col in log_data.columns:
+            col_str = str(col).strip()
+            # Check for exact matches first
+            if col_str in field_mappings:
+                column_mapping[col] = field_mappings[col_str]
+                continue
+            # Then check for partial matches
+            for key, value in field_mappings.items():
+                if key.lower() in col_str.lower() or col_str.lower() in key.lower():
+                    column_mapping[col] = value
+                    break
+
+        # Find analysis columns
+        analysis_columns = {}
+        for col in log_data.columns:
+            col_str = str(col).strip()
+            for analysis in analysis_names:
+                if col_str == analysis or col_str.lower() == analysis.lower():
+                    analysis_columns[col] = analysis
+                    break
+
+        print("Column mapping for Log Book:")
+        for col, field in column_mapping.items():
+            print(f"  {col} -> {field}")
+
+        print("Analysis columns in Log Book:", list(analysis_columns.keys()))
+
+        # Process each row of data
+        for idx, row in log_data.iterrows():
+            # Skip rows that are completely empty
+            if row.isnull().all():
+                continue
+
+            # Initialize a sample dictionary
+            sample = {}
+
+            # Extract UNH# first to check if it's the only field populated
+            unh_id = None
+            for col, field_name in column_mapping.items():
+                if field_name == 'unh_id':
+                    value = row[col]
+                    if pd.notna(value) and str(value).strip():
+                        unh_id = str(value).strip()
+                        sample['unh_id'] = unh_id
+                    break
+
+            # Skip rows where only UNH# is populated
+            if unh_id and len(sample) == 1:
+                has_other_data = False
+                for col, field_name in column_mapping.items():
+                    if field_name != 'unh_id':
+                        value = row[col]
+                        if pd.notna(value) and str(value).strip():
+                            has_other_data = True
+                            break
+
+                if not has_other_data:
+                    print(f"Skipping row with only UNH#: {unh_id}")
+                    continue
+
+            # Extract the rest of the values
+            for col, field_name in column_mapping.items():
+                if field_name != 'unh_id':  # Already processed UNH# above
+                    value = row[col]
+                    if pd.notna(value) and str(value).strip():
+                        # Convert to string but handle special types
+                        if isinstance(value, (datetime.datetime, datetime.date)):
+                            sample[field_name] = value.strftime('%Y-%m-%d')
+                        elif isinstance(value, datetime.time):
+                            sample[field_name] = value.strftime('%H:%M:%S')
+                        else:
+                            sample[field_name] = str(value).strip()
+
+            # Extract analysis requirements
+            sample['analyses'] = {}
+            for col, analysis_name in analysis_columns.items():
+                value = row[col]
+                is_required = False
+                if pd.notna(value):
+                    value_str = str(value).upper().strip()
+                    if value_str == 'X' or value_str == 'TRUE' or value_str == '1' or value_str == 'Y':
+                        is_required = True
+                sample['analyses'][analysis_name] = is_required
+
+            # Only add samples that have at least a sample name or UNH ID
+            if ('sample_name' in sample and sample['sample_name']) or ('unh_id' in sample and sample['unh_id']):
+                samples.append(sample)
+
+        print(f"Extracted {len(samples)} valid samples from Log Book")
+        if samples:
+            print("First sample from Log Book:")
+            for key, value in samples[0].items():
+                if key != 'analyses':
+                    print(f"  {key}: {value}")
+            print("  Analyses requested:")
+            for analysis, requested in samples[0]['analyses'].items():
+                if requested:
+                    print(f"    {analysis}")
+
+        return samples
+
+    def populate_logbook_preview(self, log_data, samples):
+        """Populate the preview treeviews with data from the Log Book Excel file."""
+        # Clear the current content of both treeviews
+        for item in self.project_tree.get_children():
+            self.project_tree.delete(item)
+
+        for item in self.sample_tree.get_children():
+            self.sample_tree.delete(item)
+
+        # For Log Book format, we don't have separate project info
+        # So we'll create a simple project info display with basic stats
+        project_info = [
+            {"Field": "File Type", "Value": "Log Book Format"},
+            {"Field": "Samples Found", "Value": str(len(samples))},
+            {"Field": "Project", "Value": self.project_entry.get() or "Not specified"}
+        ]
+
+        # Find unique projects in the data
+        unique_projects = set()
+        for sample in samples:
+            if 'project' in sample and sample['project']:
+                unique_projects.add(sample['project'])
+
+        if unique_projects:
+            project_info.append({"Field": "Projects in File", "Value": ", ".join(unique_projects)})
+
+        # Configure project tree columns
+        project_columns = ["Field", "Value"]
+        self.project_tree["columns"] = project_columns
+        self.project_tree["show"] = "headings"
+
+        for col in project_columns:
+            self.project_tree.heading(col, text=col)
+            self.project_tree.column(col, width=150, minwidth=50)
+
+        # Add project info to the treeview
+        for info in project_info:
+            self.project_tree.insert("", "end", values=[info["Field"], info["Value"]])
+
+        # Configure and populate sample treeview
+        # Check if we have extracted samples
+        if samples:
+            # Create a preview DataFrame with properly extracted data
+            preview_data = []
+            for sample in samples:
+                sample_row = {}
+                # Add basic fields
+                for key, value in sample.items():
+                    if key != 'analyses':
+                        sample_row[key] = value
+
+                # Add analysis fields
+                for analysis, required in sample.get('analyses', {}).items():
+                    sample_row[analysis] = 'X' if required else ''
+
+                preview_data.append(sample_row)
+
+            # Convert to DataFrame for easier display
+            if preview_data:
+                preview_df = pd.DataFrame(preview_data)
+
+                # Get preview columns
+                preview_columns = preview_df.columns.tolist()
+
+                # Configure columns for sample tree based on extracted data
+                self.sample_tree["columns"] = preview_columns
+                self.sample_tree["show"] = "headings"
+
+                # Configure each column
+                for col in preview_columns:
+                    self.sample_tree.heading(col, text=str(col))
+                    self.sample_tree.column(col, width=100, minwidth=50)
+
+                # Add extracted data to sample tree
+                for _, row in preview_df.iterrows():
+                    values = [str(val) if pd.notna(val) else "" for val in row]
+                    self.sample_tree.insert("", "end", values=values)
+
+                print(f"Sample preview populated with {len(preview_df)} rows and {len(preview_columns)} columns")
+                return
+
+        # If we couldn't extract samples properly, show the raw data
+        print("Using raw Log Book data for preview")
+        sample_columns = log_data.columns.tolist()
+
+        self.sample_tree["columns"] = sample_columns
+        self.sample_tree["show"] = "headings"
+
+        for col in sample_columns:
+            self.sample_tree.heading(col, text=str(col))
+            self.sample_tree.column(col, width=100, minwidth=50)
+
+        for _, row in log_data.iterrows():
+            values = [str(val) if pd.notna(val) else "" for val in row]
+            self.sample_tree.insert("", "end", values=values)
+
+        print(f"Raw Log Book preview populated with {len(log_data)} rows and {len(sample_columns)} columns")
+
+    def import_logbook_data(self):
+        """Import the data from the selected Log Book Excel file into the Access database."""
+        file_path = self.logbook_file_path_var.get()
+        if not file_path:
+            messagebox.showwarning("No File Selected", "Please select a Log Book Excel file first.")
+            return
+
+        try:
+            # Read the Excel file
+            self.import_status_var.set("Loading Log Book file for import...")
+            log_data = self.read_logbook_excel(file_path)
+
+            if log_data is None or log_data.empty:
+                self.import_status_var.set("Error: Could not read the Log Book file or it's empty.")
+                return
+
+            # Confirm import
+            confirm = messagebox.askyesno(
+                "Confirm Import",
+                f"Are you sure you want to import samples from this Log Book file?"
+            )
+
+            if not confirm:
+                self.import_status_var.set("Import cancelled by user.")
+                return
+
+            # Perform the import
+            self.import_status_var.set("Importing data from Log Book...")
+            success = self.perform_logbook_import(log_data)
+
+            if success:
+                self.import_status_var.set(f"Successfully imported samples from Log Book.")
+                # Reload the main data table
+                self.data = self._load_data_from_database()
+                self.show_all()
+            else:
+                self.import_status_var.set("Error during Log Book import. See console for details.")
+
+        except Exception as e:
+            error_message = f"Error importing Log Book file: {str(e)}"
+            print(error_message)
+            print(traceback.format_exc())
+            messagebox.showerror("Import Error", error_message)
+            self.import_status_var.set("Error during import. See console for details.")
+
+    def perform_logbook_import(self, log_data):
+        """Perform the actual import of Log Book data into the Access database."""
+        conn = self._get_db_connection()
+        if not conn:
+            return False
+
+        cursor = conn.cursor()
+        imported_count = 0
+
+        try:
+            # Begin transaction
+            if conn.autocommit:
+                conn.autocommit = False
+
+            # Extract sample data
+            samples = self.extract_logbook_data(log_data)
+
+            if not samples:
+                messagebox.showwarning("No Samples", "No valid samples found in the Log Book file.")
+                return False
+
+            print(f"Found {len(samples)} samples to import from Log Book")
+
+            # Process each sample
+            success_count = 0
+            skipped_count = 0
+            for sample in samples:
+                print(f"Processing Log Book sample: {sample.get('sample_name', 'Unknown')}")
+
+                # Check if UNH# already exists
+                unh_id = sample.get('unh_id', '')
+                if unh_id:
+                    # Check if this UNH# already exists
+                    if self._check_unh_exists(cursor, unh_id):
+                        print(f"Skipping existing UNH# {unh_id}")
+                        skipped_count += 1
+                        continue
+
+                # Get project info directly from the sample
+                project_info = {
+                    'user_project_name': sample.get('project', 'Default Project'),
+                    'project_name': sample.get('project', ''),
+                    'sub_project': sample.get('sub_project', ''),
+                    'sub_projecta': sample.get('sub_projecta', '')
+                }
+
+                success = self._insert_logbook_sample(cursor, project_info, sample)
+
+                if success:
+                    # Insert into WRRC sample analysis requested
+                    self._insert_logbook_analysis(cursor, sample)
+                    success_count += 1
+
+            # Commit the transaction
+            conn.commit()
+            print(f"Successfully imported {success_count} samples, skipped {skipped_count} existing samples.")
+
+            if success_count > 0 or skipped_count > 0:
+                messagebox.showinfo("Import Result",
+                                    f"Import completed:\n- {success_count} samples imported\n- {skipped_count} samples skipped (already exist)")
+                return True
+            else:
+                messagebox.showwarning("Import Warning", "No samples were imported. Check the console for details.")
+                return False
+
+        except Exception as e:
+            # Rollback in case of error
+            conn.rollback()
+            error_message = f"Error during Log Book import: {str(e)}"
+            print(error_message)
+            print(traceback.format_exc())
+            messagebox.showerror("Import Error", error_message)
+            return False
+
+        finally:
+            cursor.close()
+            conn.close()
+
+    def _check_unh_exists(self, cursor, unh_id):
+        """Check if a UNH ID already exists in the database."""
+        try:
+            query = "SELECT COUNT(*) FROM [WRRC sample info] WHERE [UNH#] = ?"
+            cursor.execute(query, (unh_id,))
+            count = cursor.fetchone()[0]
+            return count > 0
+        except Exception as e:
+            print(f"Error checking if UNH# exists: {str(e)}")
+            return False
+
+    def _insert_logbook_sample(self, cursor, project_info, sample):
+        """Insert a sample from Log Book into the WRRC sample info table."""
+        try:
+            # Extract sample information
+            unh_id = sample.get('unh_id', '')
+            sample_name = sample.get('sample_name', '')
+            sample_type = sample.get('sample_type', '')
+            field_notes = sample.get('field_notes', '')
+
+            # Handle date and time formatting
+            collection_date = sample.get('collection_date', '')
+            collection_time = sample.get('collection_time', '')
+
+            # Convert date/time to proper format if needed
+            if collection_date:
+                try:
+                    # If it's already a datetime object
+                    if isinstance(collection_date, (datetime.datetime, datetime.date)):
+                        collection_date = collection_date.strftime('%Y-%m-%d')
+                    # If it's a string, try to parse it
+                    elif isinstance(collection_date, str):
+                        try:
+                            # Try multiple date formats
+                            date_formats = [
+                                '%Y-%m-%d', '%m/%d/%Y', '%d/%m/%Y',
+                                '%m-%d-%Y', '%d-%m-%Y', '%m.%d.%Y', '%d.%m.%Y'
+                            ]
+
+                            parsed_date = None
+                            for fmt in date_formats:
+                                try:
+                                    parsed_date = datetime.datetime.strptime(collection_date, fmt)
+                                    break
+                                except:
+                                    continue
+
+                            if parsed_date:
+                                collection_date = parsed_date.strftime('%Y-%m-%d')
+                            else:
+                                print(f"Warning: Could not parse date format for {collection_date}")
+                        except Exception as date_err:
+                            print(f"Date parsing error: {date_err}")
+                except Exception as date_conv_err:
+                    print(f"Date conversion error: {date_conv_err}")
+
+            # Format collection time if needed
+            if collection_time:
+                try:
+                    # Handle different time formats
+                    if isinstance(collection_time, datetime.time):
+                        collection_time = collection_time.strftime('%H:%M:%S')
+                    elif isinstance(collection_time, str) and collection_time.strip():
+                        # Try to standardize time format
+                        time_formats = ['%H:%M:%S', '%I:%M:%S %p', '%I:%M %p', '%H:%M']
+                        for fmt in time_formats:
+                            try:
+                                parsed_time = datetime.datetime.strptime(collection_time, fmt).time()
+                                collection_time = parsed_time.strftime('%H:%M:%S')
+                                break
+                            except:
+                                continue
+                    else:
+                        collection_time = None
+                except Exception as time_err:
+                    print(f"Time parsing error: {time_err}")
+                    collection_time = None
+            else:
+                collection_time = None
+
+            # Use project info from the sample itself
+            project = project_info.get('user_project_name', '')
+            if not project:
+                project = "Default Project"
+                print(f"Warning: Using default project name because no project specified in Log Book")
+
+            # Get project-related fields from sample
+            sub_project = project_info.get('sub_project', '')
+            sub_projecta = project_info.get('sub_projecta', '')
+            sub_projectb = sample.get('sub_projectb', '')
+
+            # Get additional measurements if available
+            ph = sample.get('ph', '')
+            conductivity = sample.get('cond', '')
+            spec_cond = sample.get('spec_cond', '')
+            do_conc = sample.get('do_conc', '')
+            do_percent = sample.get('do_percent', '')
+            temperature = sample.get('temperature', '')
+            salinity = sample.get('salinity', '')
+
+            # Validate numeric fields
+            for field_name in ['ph', 'cond', 'spec_cond', 'do_conc', 'do_percent', 'temperature', 'salinity']:
+                value = sample.get(field_name)
+                if value is not None:
+                    if value == '' or (isinstance(value, str) and value.lower() in ['s', 'na', 'n/a']):
+                        sample[field_name] = None
+                    elif isinstance(value, str):
+                        try:
+                            sample[field_name] = float(value)
+                        except ValueError:
+                            print(f"Warning: Invalid {field_name} value '{value}' - setting to NULL")
+                            sample[field_name] = None
+
+            print(f"Log Book sample info: UNH ID={unh_id}, Name={sample_name}, Date={collection_date}")
+            print(f"Using project from Log Book: '{project}'")
+
+            # First check if the sample already exists (should be redundant with earlier check but safer)
+            check_query = """
+            SELECT COUNT(*) FROM [WRRC sample info] 
+            WHERE [UNH#] = ?
+            """
+            cursor.execute(check_query, (unh_id,))
+            count = cursor.fetchone()[0]
+            if count > 0:
+                print(f"Sample with UNH# {unh_id} already exists in database. Skipping.")
+                return False
+
+            # Build a field mapping from variables to database column names
+            field_mapping = {
+                'UNH#': unh_id if unh_id else None,
+                'Sample_Name': sample_name if sample_name else "Unknown Sample",
+                'Collection_Date': collection_date if collection_date else None,
+                'Project': project if project else "Default Project",
+                'Sub_Project': sub_project if sub_project else None,
+                'Sub_ProjectA': sub_projecta if sub_projecta else None,
+                'Sub_ProjectB': sub_projectb if sub_projectb else None,
+                'Sample_Type': sample_type if sample_type else None,
+                'Field_Notes': field_notes if field_notes else None,
+                'pH': sample.get('ph') if sample.get('ph') is not None else None,
+                'Cond': sample.get('cond') if sample.get('cond') is not None else None,
+                'Spec_Cond': sample.get('spec_cond') if sample.get('spec_cond') is not None else None,
+                'DO_Conc': sample.get('do_conc') if sample.get('do_conc') is not None else None,
+                'DO%': sample.get('do_percent') if sample.get('do_percent') is not None else None,
+                'Temperature': sample.get('temperature') if sample.get('temperature') is not None else None,
+                'Salinity': sample.get('salinity') if sample.get('salinity') is not None else None
+            }
+
+            # Only add Collection_Time if it's not empty
+            if collection_time:
+                field_mapping['Collection_Time'] = collection_time
+
+            # Filter out None values
+            fields = {k: v for k, v in field_mapping.items() if v is not None}
+
+            # Build columns and parameters for SQL query
+            columns = list(fields.keys())
+
+            # Handle special characters in column names
+            formatted_columns = []
+            for col in columns:
+                if col == 'DO%':
+                    formatted_columns.append('[DO%]')
+                else:
+                    formatted_columns.append(f'[{col}]')
+
+            placeholders = ['?'] * len(columns)
+            values = list(fields.values())
+
+            # Construct and execute the query
+            query = f"INSERT INTO [WRRC sample info] ({', '.join(formatted_columns)}) VALUES ({', '.join(placeholders)})"
+
+            print(f"Log Book sample insert query: {query}")
+            print(f"Parameters: {values}")
+
+            cursor.execute(query, values)
+
+            print(f"Inserted Log Book sample info for: {sample_name} (UNH# {unh_id})")
+            return True
+
+        except Exception as e:
+            print(f"Error inserting Log Book sample info: {str(e)}")
+            print(traceback.format_exc())
+            raise
+
+    def _insert_logbook_analysis(self, cursor, sample):
+        """Insert analysis data from Log Book into the WRRC sample analysis requested table."""
+        try:
+            # Get UNH ID
+            unh_id = sample.get('unh_id', '')
+
+            # Make sure we have the minimum required data
+            if not unh_id:
+                print("Cannot insert analysis request: Missing UNH ID")
+                return False
+
+            # Get analysis requirements
+            analyses = sample.get('analyses', {})
+
+            # Get additional fields for analysis
+            containers = sample.get('containers', '')
+            filtered = sample.get('filtered', '')
+            preservation = sample.get('preservation', '')
+            filter_volume = sample.get('filter_volume', '')
+
+            # Create mapping between Excel analysis names and database column names
+            analysis_mapping = {
+                'DOC': 'DOC',
+                'TDN': 'TDN',
+                'Anions': 'Anions',
+                'Cations': 'Cations',
+                'NO3+NO2': 'NO3AndNO2',
+                'NO2': 'NO2',
+                'NH4': 'NH4',
+                'PO4/SRP': 'PO4OrSRP',
+                'SiO2': 'SiO2',
+                'TN': 'TN',
+                'TP': 'TP',
+                'TDP': 'TDP',
+                'TSS': 'TSS',
+                'PC/PN': 'PCAndPN',
+                'Chl a': 'Chl_a',
+                'EEMs': 'EEMs',
+                'Gases - GC': 'Gases_GC',
+                'ICPOES': 'ICPOES',
+                'Additional': 'Additional'
+            }
+
+            # Log the analyses that are marked as required
+            required_analyses = [analysis for analysis, is_required in analyses.items() if is_required]
+            print(f"Required analyses for UNH# {unh_id}: {required_analyses}")
+
+            # Prepare columns and values
+            columns = ["[UNH#]"]
+            values = [str(unh_id)]
+
+            # Add additional fields if they exist
+            if containers:
+                columns.append("[Containers]")
+                values.append(str(containers))
+
+            if filtered:
+                columns.append("[Filtered]")
+                values.append(str(filtered))
+
+            if preservation:
+                columns.append("[Preservation]")
+                values.append(str(preservation))
+
+            if filter_volume:
+                columns.append("[Filter_Volume]")
+                values.append(str(filter_volume))
+
+            # Add analysis fields
+            for analysis, is_required in analyses.items():
+                if is_required:
+                    db_column = analysis_mapping.get(analysis)
+                    if db_column:
+                        columns.append(f"[{db_column}]")
+                        values.append("required")
+
+            # If we have any data to insert
+            if len(columns) > 1:  # At least UNH# plus one more field
+                # Build the SQL query
+                query = f"INSERT INTO [WRRC sample analysis requested] ({', '.join(columns)}) VALUES ({', '.join(['?'] * len(values))})"
+
+                try:
+                    cursor.execute(query, values)
+                    print(f"Inserted analysis request for UNH# {unh_id} with {len(columns) - 1} fields")
+                    return True
+                except Exception as e:
+                    print(f"Error inserting analysis request for UNH# {unh_id}: {str(e)}")
+                    raise
+            else:
+                print(f"No analysis fields to insert for UNH# {unh_id}")
+                return False
+
+        except Exception as e:
+            print(f"Error inserting Log Book analysis data: {str(e)}")
+            raise
+
+    # Update these existing methods to work with the new dual-import system
+
+    def preview_excel_data(self):
+        """Preview the data from the selected Sample Submission Excel file."""
+        file_path = self.submission_file_path_var.get()
+        if not file_path:
+            messagebox.showwarning("No File Selected", "Please select a Sample Submission Excel file first.")
             return
 
         try:
@@ -2179,7 +3012,7 @@ class SampleTrackerApp(ctk.CTk):
                 self.import_status_var.set("Error: Could not read the expected sheets from the Excel file.")
                 return
 
-            # Extract project info in a more robust way
+            # Extract project info
             self.current_project_info = self.extract_project_info(project_df)
 
             # Extract sample data for validation
@@ -2187,11 +3020,6 @@ class SampleTrackerApp(ctk.CTk):
 
             # Update the status
             self.import_status_var.set(f"Preview ready. Found {len(samples)} samples.")
-
-            # DO NOT auto-update the project entry field - commenting this out
-            # if 'project_name' in self.current_project_info and self.current_project_info['project_name']:
-            #     self.project_entry.delete(0, "end")
-            #     self.project_entry.insert(0, self.current_project_info['project_name'])
 
             # Display Excel project name in status but don't override textbox
             excel_project = self.current_project_info.get('project_name', 'Not specified')
@@ -2208,10 +3036,10 @@ class SampleTrackerApp(ctk.CTk):
             self.import_status_var.set("Error previewing file. See console for details.")
 
     def import_excel_data(self):
-        """Import the data from the selected Excel file into the Access database."""
-        file_path = self.file_path_var.get()
+        """Import the data from the selected Sample Submission Excel file into the Access database."""
+        file_path = self.submission_file_path_var.get()
         if not file_path:
-            messagebox.showwarning("No File Selected", "Please select an Excel file first.")
+            messagebox.showwarning("No File Selected", "Please select a Sample Submission Excel file first.")
             return
 
         try:
@@ -2266,6 +3094,7 @@ class SampleTrackerApp(ctk.CTk):
 
         cursor = conn.cursor()
         imported_count = 0
+        skipped_count = 0
 
         try:
             # Begin transaction
@@ -2304,6 +3133,13 @@ class SampleTrackerApp(ctk.CTk):
             for sample in samples:
                 print(f"Processing sample: {sample.get('sample_name', 'Unknown')}")
 
+                # Check if sample has UNH# and if it already exists
+                unh_id = sample.get('unh_id', '')
+                if unh_id and self._check_unh_exists(cursor, unh_id):
+                    print(f"Skipping existing UNH# {unh_id}")
+                    skipped_count += 1
+                    continue
+
                 # Insert into WRRC sample info
                 success = self._insert_sample_info(cursor, project_info, sample)
 
@@ -2314,10 +3150,11 @@ class SampleTrackerApp(ctk.CTk):
 
             # Commit the transaction
             conn.commit()
-            print(f"Successfully imported {success_count} samples.")
+            print(f"Successfully imported {success_count} samples, skipped {skipped_count} existing samples.")
 
-            if success_count > 0:
-                messagebox.showinfo("Import Success", f"Successfully imported {success_count} samples.")
+            if success_count > 0 or skipped_count > 0:
+                messagebox.showinfo("Import Result",
+                                    f"Import completed:\n- {success_count} samples imported\n- {skipped_count} samples skipped (already exist)")
                 return True
             else:
                 messagebox.showwarning("Import Warning", "No samples were imported. Check the console for details.")
