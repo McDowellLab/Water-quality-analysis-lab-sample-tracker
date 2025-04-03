@@ -56,7 +56,6 @@ def get_database_path():
 class SampleTrackerApp(ctk.CTk):
 
     # Now, modify the __init__ method to add the Edit tab
-
     def __init__(self):
         super().__init__()
 
@@ -68,21 +67,23 @@ class SampleTrackerApp(ctk.CTk):
         self.geometry("1200x800")
         print("Initializing application...")
 
-        # Connect to Access database
-        self.db_path = get_database_path()
-        self.password = "x"
-        self.data = self._load_data_from_database()
-
-        # Initialize state variables
+        # Initialize state variables FIRST
         self.analysis_completed_var = ctk.BooleanVar(value=False)
+        self.filter_by_date_var = ctk.BooleanVar(value=True)  # Default to filtering by date
+        self.percent_date_filtered = 0
+        self.years_limit = 1  # Changed from 8 to 1 year
 
-        # Create a tabview
+        # Connect to Access database AFTER initializing variables
+        self.db_path = get_database_path()
+        self.password = "Jh1188!"
+        self.data = self._load_data_from_database()  # This should respect the date filter now
+
+        # Then create UI elements
         self.create_tabview()
         self.create_search_tab()
         self.create_import_tab()
         self.create_edit_tab()
-        self.create_calendar_tab()  # Add calendar tab
-
+        self.create_calendar_tab()
         # Selected record for editing
         self.selected_record = None
         self.analysis_data = None
@@ -110,98 +111,6 @@ class SampleTrackerApp(ctk.CTk):
             print(f"Error connecting to database: {e}")
             messagebox.showerror("Database Error", f"Could not connect to the database: {str(e)}")
             return None
-
-    def _load_data_from_database(self):
-        """Load data from Access database instead of Excel."""
-        try:
-            # First, verify that the database file exists
-            if not os.path.exists(self.db_path):
-                print(f"ERROR: Database file not found at {self.db_path}")
-                return pd.DataFrame()
-
-            print(f"Database file confirmed at: {self.db_path}")
-
-            # Create a connection string for the Access database with password
-            conn_str = (
-                r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
-                f"DBQ={self.db_path};"
-                f"PWD={self.password};"
-                "Extended Properties='Excel 8.0;IMEX=1;'"  # Added IMEX=1 to handle mixed data
-            )
-
-            print(f"Attempting to connect to database with connection string")
-
-            # Connect to the database with explicit encoding settings
-            conn = pyodbc.connect(conn_str, autocommit=True)
-
-            # Adjust character encoding behavior
-            conn.setdecoding(pyodbc.SQL_CHAR, encoding='latin1')
-            conn.setdecoding(pyodbc.SQL_WCHAR, encoding='latin1')
-            conn.setencoding(encoding='latin1')
-
-            cursor = conn.cursor()
-
-            # First try to get table names to verify connection is working
-            try:
-                tables = [table.table_name for table in cursor.tables(tableType='TABLE')]
-                print(f"Available tables in database: {tables}")
-            except Exception as table_err:
-                print(f"Couldn't retrieve table names: {table_err}")
-
-            # Try to query the main table
-            try:
-                print("Attempting to query the WRRC sample info table...")
-                cursor.execute("SELECT TOP 1 * FROM [WRRC sample info]")
-                columns = [column[0] for column in cursor.description]
-                print(f"Table columns found: {columns}")
-
-                # Now execute the full query
-                cursor.execute("SELECT * FROM [WRRC sample info]")
-
-                # Create a safer way to fetch data without encoding issues
-                rows = []
-                while True:
-                    try:
-                        row = cursor.fetchone()
-                        if row is None:
-                            break
-                        # Convert each value in the row to string safely
-                        safe_row = []
-                        for val in row:
-                            if val is None:
-                                safe_row.append("")
-                            else:
-                                try:
-                                    safe_row.append(str(val))
-                                except:
-                                    safe_row.append("")
-                        rows.append(safe_row)
-                    except Exception as fetch_err:
-                        print(f"Error fetching row: {fetch_err}")
-                        continue
-
-                # Create a DataFrame from the safe data
-                df = pd.DataFrame(rows, columns=columns)
-
-                cursor.close()
-                conn.close()
-
-                print(f"Successfully loaded {len(df)} rows from Access database")
-                return df
-
-            except Exception as query_err:
-                print(f"Failed to query Access database: {query_err}")
-                cursor.close()
-                conn.close()
-                return pd.DataFrame()
-
-        except Exception as e:
-            print(f"Error connecting to Access database: {e}")
-            print(f"Detailed error info: {str(e)}")
-
-            # Attempt to fall back to Excel as a last resort
-
-            return pd.DataFrame()
 
     def create_tabview(self):
         """Create the main tabview for the application."""
@@ -265,63 +174,72 @@ class SampleTrackerApp(ctk.CTk):
 
             cursor = conn.cursor()
 
-            # First try to get table names to verify connection is working
-            try:
-                tables = [table.table_name for table in cursor.tables(tableType='TABLE')]
-                print(f"Available tables in database: {tables}")
-            except Exception as table_err:
-                print(f"Couldn't retrieve table names: {table_err}")
+            # Check if we should limit the initial query by date
+            years_limit = getattr(self, 'years_limit', 1)  # Default to 1 year if not set
+            limit_by_date = True  # Always filter by date on initial load
 
-            # Try to query the main table
-            try:
-                print("Attempting to query the WRRC sample info table...")
-                cursor.execute("SELECT TOP 1 * FROM [WRRC sample info]")
-                columns = [column[0] for column in cursor.description]
-                print(f"Table columns found: {columns}")
+            if limit_by_date:
+                try:
+                    # Calculate cutoff date (X years ago)
+                    current_date = datetime.datetime.now()
+                    cutoff_date = current_date - datetime.timedelta(days=years_limit * 365)
+                    cutoff_date_str = cutoff_date.strftime('%Y-%m-%d')
 
-                # Now execute the full query
+                    print(f"Initial load: Limiting to samples newer than {cutoff_date_str} (past {years_limit} year)")
+
+                    # Apply the filter directly in SQL for initial load
+                    cursor.execute(
+                        """
+                        SELECT * FROM [WRRC sample info] 
+                        WHERE ([Collection_Date] >= ? OR [Collection_Date] IS NULL)
+                        """,
+                        (cutoff_date_str,)
+                    )
+                except Exception as filter_err:
+                    print(f"Error applying date filter in SQL: {filter_err}")
+                    # Fall back to loading all records
+                    cursor.execute("SELECT * FROM [WRRC sample info]")
+            else:
+                # Query all records
                 cursor.execute("SELECT * FROM [WRRC sample info]")
 
-                # Create a safer way to fetch data without encoding issues
-                rows = []
-                while True:
-                    try:
-                        row = cursor.fetchone()
-                        if row is None:
-                            break
-                        # Convert each value in the row to string safely
-                        safe_row = []
-                        for val in row:
-                            if val is None:
+            columns = [column[0] for column in cursor.description]
+
+            # Create a safer way to fetch data without encoding issues
+            rows = []
+            while True:
+                try:
+                    row = cursor.fetchone()
+                    if row is None:
+                        break
+                    # Convert each value in the row to string safely
+                    safe_row = []
+                    for val in row:
+                        if val is None:
+                            safe_row.append("")
+                        else:
+                            try:
+                                safe_row.append(str(val))
+                            except:
                                 safe_row.append("")
-                            else:
-                                try:
-                                    safe_row.append(str(val))
-                                except:
-                                    safe_row.append("")
-                        rows.append(safe_row)
-                    except Exception as fetch_err:
-                        print(f"Error fetching row: {fetch_err}")
-                        continue
+                    rows.append(safe_row)
+                except Exception as fetch_err:
+                    print(f"Error fetching row: {fetch_err}")
+                    continue
 
-                # Create a DataFrame from the safe data
-                df = pd.DataFrame(rows, columns=columns)
+            # Create a DataFrame from the safe data
+            df = pd.DataFrame(rows, columns=columns)
 
-                cursor.close()
-                conn.close()
+            cursor.close()
+            conn.close()
 
-                print(f"Successfully loaded {len(df)} rows from Access database")
-                return df
-
-            except Exception as query_err:
-                print(f"Failed to query Access database: {query_err}")
-                cursor.close()
-                conn.close()
-                return pd.DataFrame()
+            print(f"Successfully loaded {len(df)} rows from Access database (filtered by date)")
+            return df
 
         except Exception as e:
             print(f"Error connecting to Access database: {e}")
             print(f"Detailed error info: {str(e)}")
+            return pd.DataFrame()
 
             # Attempt to fall back to Excel as a last resort
 
@@ -364,6 +282,9 @@ class SampleTrackerApp(ctk.CTk):
 
         # Remove duplicates in case a row matched in multiple columns
         filtered_data = filtered_data.drop_duplicates()
+
+        # Apply date filter if checkbox is checked
+        filtered_data = self.apply_date_filter(filtered_data)
 
         if filtered_data.empty:
             print("No samples found for:", search_term)
@@ -411,49 +332,8 @@ class SampleTrackerApp(ctk.CTk):
         mask = self.data.apply(row_matches, axis=1)
         filtered_data = self.data[mask]
 
-        if filtered_data.empty:
-            print("No project found for:", search_term)
-        else:
-            print("Found", len(filtered_data), "row(s) matching project search:", search_term)
-
-        self.populate_treeview(filtered_data)
-
-    def search_by_project(self):
-        """
-        Search rows by matching text across project-related columns.
-        The search text is split into tokens, and a row is returned only if every token
-        is found in the combined text of the project's fields.
-        """
-        search_term = self.project_search_entry.get().strip()
-        if not search_term:
-            print("Project search term is empty.")
-            return
-
-        print(f"Searching for project matching: '{search_term}'")
-
-        if self.data.empty:
-            print("No data available to search")
-            return
-
-        # Define project-related columns
-        project_cols = ["Project", "Sub_Project", "Sub_ProjectA", "Sub_ProjectB"]
-        available_cols = [col for col in project_cols if col in self.data.columns]
-
-        if not available_cols:
-            print("Error: No project-related columns found in the dataset.")
-            return
-
-        # Split search term into tokens
-        tokens = search_term.split()
-
-        def row_matches(row):
-            combined = " ".join([str(row[col]) for col in available_cols if pd.notna(row[col])])
-            combined_lower = combined.lower()
-            return all(token.lower() in combined_lower for token in tokens)
-
-        # Filter the data
-        mask = self.data.apply(row_matches, axis=1)
-        filtered_data = self.data[mask]
+        # Apply date filter if checkbox is checked
+        filtered_data = self.apply_date_filter(filtered_data)
 
         if filtered_data.empty:
             print("No project found for:", search_term)
@@ -461,6 +341,120 @@ class SampleTrackerApp(ctk.CTk):
             print("Found", len(filtered_data), "row(s) matching project search:", search_term)
 
         self.populate_treeview(filtered_data)
+
+    def refresh_search(self):
+        """Refresh search results based on the current filter settings."""
+        # If there's an active search, re-run it
+        if self.sample_search_entry.get().strip():
+            self.search_by_sample()
+        elif self.project_search_entry.get().strip():
+            self.search_by_project()
+        else:
+            # Otherwise, show all records (respecting the filter)
+            self.show_all()
+
+    def apply_date_filter(self, df):
+        """Apply date filter to restrict results to samples less than X years old."""
+        if not self.filter_by_date_var.get():
+            return df  # Return unfiltered if checkbox is unchecked
+
+        try:
+            # Get current date
+            current_date = datetime.datetime.now()
+
+            # Get the years limit from the class (default to 1 if not set)
+            years_limit = getattr(self, 'years_limit', 1)
+
+            # Calculate cutoff date (X years ago)
+            cutoff_date = current_date - datetime.timedelta(days=years_limit * 365)
+            cutoff_date_str = cutoff_date.strftime('%Y-%m-%d')
+
+            print(f"Filtering samples newer than {cutoff_date_str}")
+
+            # Check if 'Collection_Date' column exists
+            if 'Collection_Date' not in df.columns:
+                print("Warning: 'Collection_Date' column not found. Cannot apply date filter.")
+                return df
+
+            # Create a copy of the DataFrame to avoid modifying the original
+            filtered_df = df.copy()
+
+            # Debug: Print unique date formats in the dataset
+            sample_dates = filtered_df['Collection_Date'].dropna().sample(min(10, len(filtered_df)))
+            print(f"Sample date formats: {sample_dates.tolist()}")
+
+            # Count valid and non-empty dates before conversion
+            non_empty_dates = filtered_df['Collection_Date'].count()
+            print(f"Non-empty dates before conversion: {non_empty_dates} out of {len(filtered_df)}")
+
+            # Try to convert dates with more robust handling of formats
+            try:
+                # First attempt - try to parse with common formats
+                filtered_df['Temp_Date'] = pd.to_datetime(filtered_df['Collection_Date'],
+                                                          errors='coerce')  # Converts invalid dates to NaT
+
+                # Count successful conversions
+                valid_dates = filtered_df['Temp_Date'].count()
+                print(f"Successfully converted dates: {valid_dates} out of {non_empty_dates}")
+
+                # Check if we have a very low conversion rate, indicating potential format issues
+                if valid_dates < non_empty_dates * 0.5 and non_empty_dates > 10:
+                    print("Warning: Low date conversion rate. Attempting alternative formats...")
+
+                    # Try additional date formats
+                    for fmt in ['%m/%d/%Y', '%d/%m/%Y', '%Y/%m/%d', '%m-%d-%Y', '%d-%m-%Y']:
+                        try:
+                            filtered_df['Temp_Date_Alt'] = pd.to_datetime(filtered_df['Collection_Date'],
+                                                                          errors='coerce',
+                                                                          format=fmt)
+                            # Count valid conversions with this format
+                            valid_alt = filtered_df['Temp_Date_Alt'].count()
+                            print(f"Format {fmt}: {valid_alt} valid conversions")
+
+                            # If this format works better, use it
+                            if valid_alt > valid_dates:
+                                filtered_df['Temp_Date'] = filtered_df['Temp_Date_Alt']
+                                valid_dates = valid_alt
+                                print(f"Using alternative format {fmt} with {valid_dates} valid conversions")
+
+                            filtered_df.drop('Temp_Date_Alt', axis=1, inplace=True)
+                        except:
+                            continue
+            except Exception as date_err:
+                print(f"Error during date conversion: {str(date_err)}")
+                # Create an empty Temp_Date column to avoid errors in the filter
+                filtered_df['Temp_Date'] = pd.NaT
+
+            # Debug: Check range of dates after conversion
+            if filtered_df['Temp_Date'].count() > 0:
+                min_date = filtered_df['Temp_Date'].min()
+                max_date = filtered_df['Temp_Date'].max()
+                print(f"Date range in dataset: {min_date} to {max_date}")
+                print(f"Cutoff date: {cutoff_date}")
+
+            # Keep rows where:
+            # 1. Date is greater than (newer than) the cutoff date, OR
+            # 2. Date is missing/invalid
+            # This avoids filtering out records without dates
+            mask = (filtered_df['Temp_Date'] > cutoff_date) | (filtered_df['Temp_Date'].isnull())
+
+            # Count how many records would be filtered
+            would_filter = len(filtered_df) - len(filtered_df[mask])
+            print(f"Would filter out {would_filter} records older than {cutoff_date_str}")
+
+            # Apply filter
+            filtered_df = filtered_df[mask]
+
+            # Drop the temporary column
+            filtered_df = filtered_df.drop('Temp_Date', axis=1)
+
+            print(f"Date filter applied: {len(df)} rows reduced to {len(filtered_df)} rows")
+            return filtered_df
+
+        except Exception as e:
+            print(f"Error applying date filter: {str(e)}")
+            print(traceback.format_exc())
+            return df  # Return original dataframe if there's an error
 
     def clear_search(self):
         """Clear both search fields and show all records."""
@@ -809,6 +803,22 @@ class SampleTrackerApp(ctk.CTk):
 
         for i in range(7):  # Up to 6 weeks plus header
             days_frame.rowconfigure(i, weight=1)
+
+    def update_filter_checkbox_label(self, percent_filtered):
+        """Update the checkbox label with the percentage of records that would be filtered."""
+        if hasattr(self, 'filter_by_date_checkbox'):
+            years_limit = getattr(self, 'years_limit', 1)  # Default to 1 year if not set
+
+            if percent_filtered < 5:
+                # Less than 5% would be filtered - let the user know
+                self.filter_by_date_checkbox.configure(
+                    text=f"Limit results to samples less than {years_limit} year old (only affects {percent_filtered:.1f}% of records)"
+                )
+            else:
+                # Significant filtering - show the percentage
+                self.filter_by_date_checkbox.configure(
+                    text=f"Limit results to samples less than {years_limit} year old (filters out {percent_filtered:.1f}% of records)"
+                )
 
     def update_calendar_view(self):
         """Update the calendar view when month or year changes."""
@@ -1852,7 +1862,6 @@ class SampleTrackerApp(ctk.CTk):
             raise
 
     # First, add the edit button to the search tab
-    # First, add the edit button to the search tab
     def create_search_tab(self):
         """Create the search tab contents."""
         search_tab = self.tabview.tab("Search")
@@ -1889,9 +1898,22 @@ class SampleTrackerApp(ctk.CTk):
         )
         project_search_button.grid(row=1, column=2, padx=10, pady=10)
 
+        # Date filter checkbox
+        filter_frame = ctk.CTkFrame(search_frame)
+        filter_frame.grid(row=2, column=0, columnspan=3, pady=5, sticky="w")
+
+        self.filter_by_date_var = ctk.BooleanVar(value=True)  # Default to checked
+        self.filter_by_date_checkbox = ctk.CTkCheckBox(
+            filter_frame,
+            text=f"Limit results to samples less than {self.years_limit} year old (improves search speed)",
+            variable=self.filter_by_date_var,
+            command=self.refresh_search  # Refresh search results when toggled
+        )
+        self.filter_by_date_checkbox.pack(side="left", padx=10, pady=5)
+
         # Clear Search and Show All Buttons
         button_frame = ctk.CTkFrame(search_frame)
-        button_frame.grid(row=2, column=0, columnspan=3, pady=10)
+        button_frame.grid(row=3, column=0, columnspan=3, pady=10)
 
         clear_search_button = ctk.CTkButton(
             button_frame,
@@ -1937,7 +1959,6 @@ class SampleTrackerApp(ctk.CTk):
 
         # Bind double-click event to edit function
         self.tree.bind("<Double-1>", lambda event: self.edit_selected_record())
-
 
     def create_styled_treeview(self, parent):
         """Create a ttk.Treeview with styling to match CustomTkinter."""
@@ -2019,9 +2040,21 @@ class SampleTrackerApp(ctk.CTk):
         print(f"Treeview populated with {len(df)} rows.")
 
     def show_all(self):
-        """Display all records."""
-        print("Displaying all rows from the Access database.")
-        self.populate_treeview(self.data)
+        """Display all records, but respect the date filter if enabled."""
+        all_data = self.data.copy()
+
+        # Apply date filter if checkbox is checked
+        filtered_data = self.apply_date_filter(all_data)
+
+        records_count = len(filtered_data)
+        total_count = len(all_data)
+
+        if self.filter_by_date_var.get():
+            print(f"Displaying {records_count} records out of {total_count} total (filtered by date).")
+        else:
+            print(f"Displaying all {records_count} records from the Access database.")
+
+        self.populate_treeview(filtered_data)
 
     def create_import_tab(self):
         """Create the import tab contents with support for both submission and log book formats."""
