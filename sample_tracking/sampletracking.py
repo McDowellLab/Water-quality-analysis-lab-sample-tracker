@@ -75,7 +75,7 @@ class SampleTrackerApp(ctk.CTk):
 
         # Connect to Access database AFTER initializing variables
         self.db_path = get_database_path()
-        self.password = "Jh1188!"
+        self.password = "x"
         self.data = self._load_data_from_database()  # This should respect the date filter now
 
         # Then create UI elements
