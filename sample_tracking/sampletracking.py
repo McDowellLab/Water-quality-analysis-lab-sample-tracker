@@ -6,9 +6,12 @@ import customtkinter as ctk
 from tkinter import ttk, filedialog, messagebox
 import traceback
 import tkinter as tk
+import tkinter.font as tkFont
 import datetime
 from tkcalendar import Calendar, DateEntry
 import calendar
+import calendar as pycal
+
 
 def get_file_path(filename):
     """Get the absolute path to a file based on whether the app is frozen or not."""
@@ -53,9 +56,223 @@ def get_database_path():
         print(f"Development mode, using database path: {db_path}")
         return db_path
 
+
+class BatchUpdateDialog(ctk.CTkToplevel):
+    def __init__(self, parent, selected_samples):
+        super().__init__(parent)
+        print("CTkToplevel created")
+        self.parent = parent
+        self.selected_samples = selected_samples
+        self.title("Batch Update Analysis Status")
+        self.geometry("1000x800")
+        self.resizable(True, True)
+
+        # Configure window
+        self.transient(parent)
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
+
+        # Keep window on top
+        self.attributes('-topmost', True)
+
+        self.create_widgets()
+        self.populate_selected_samples()
+        self.center_window()
+
+        # Simple modal approach for customtkinter
+        self.lift()
+        self.focus_force()
+
+        # Don't use grab_set with customtkinter - it causes issues
+        # Instead, disable the parent window
+        self.parent.attributes('-disabled', True)
+
+    def on_close(self):
+        """Handle window close event."""
+        # Re-enable parent window
+        self.parent.attributes('-disabled', False)
+        self.parent.focus_force()
+        self.destroy()
+
+    def center_window(self):
+        """Center the dialog on the screen."""
+        self.update_idletasks()
+
+        # Get window size
+        window_width = 1000
+        window_height = 800
+
+        # Get screen dimensions
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+
+        # Calculate position
+        x = (screen_width // 2) - (window_width // 2)
+        y = (screen_height // 2) - (window_height // 2)
+
+        # Set geometry
+        self.geometry(f"{window_width}x{window_height}+{x}+{y}")
+
+    def create_widgets(self):
+        # Main frame using CTkFrame for consistency
+        main_frame = ctk.CTkFrame(self)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        # Title
+        title_label = ctk.CTkLabel(main_frame, text="Batch Update Analysis Status",
+                                   font=("Helvetica", 16, "bold"))
+        title_label.pack(pady=(0, 10))
+
+        # Selected samples frame
+        samples_frame = ttk.LabelFrame(main_frame, text="Selected Samples", padding=10)
+        samples_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+
+        # Create treeview for selected samples (read-only)
+        columns = ["UNH#", "Sample_Name", "Project", "Collection_Date"]
+        self.samples_tree = ttk.Treeview(samples_frame, columns=columns, show='headings', height=8)
+
+        for col in columns:
+            self.samples_tree.heading(col, text=col)
+            self.samples_tree.column(col, width=150)
+
+        # Scrollbars for samples tree
+        samples_v_scrollbar = ttk.Scrollbar(samples_frame, orient="vertical", command=self.samples_tree.yview)
+        samples_h_scrollbar = ttk.Scrollbar(samples_frame, orient="horizontal", command=self.samples_tree.xview)
+
+        self.samples_tree.configure(yscrollcommand=samples_v_scrollbar.set, xscrollcommand=samples_h_scrollbar.set)
+
+        self.samples_tree.grid(row=0, column=0, sticky="nsew")
+        samples_v_scrollbar.grid(row=0, column=1, sticky="ns")
+        samples_h_scrollbar.grid(row=1, column=0, sticky="ew")
+
+        samples_frame.grid_rowconfigure(0, weight=1)
+        samples_frame.grid_columnconfigure(0, weight=1)
+
+        # Analysis update frame
+        analysis_frame = ttk.LabelFrame(main_frame, text="Update Analysis Status", padding=10)
+        analysis_frame.pack(fill=tk.X, pady=(0, 10))
+
+        # Add a checkbox for Due_Date completion
+        self.due_date_done_var = ctk.BooleanVar(value=False)
+        self.due_date_done_checkbox = ctk.CTkCheckBox(
+            analysis_frame,
+            text="Mark Due Date as Complete",
+            variable=self.due_date_done_var,
+            font=("Helvetica", 12, "bold")
+        )
+        self.due_date_done_checkbox.grid(row=0, column=4, padx=(20, 0), sticky="w")
+
+        # Analysis selection
+        ttk.Label(analysis_frame, text="Select Analysis Type:").grid(row=1, column=0, sticky="w", padx=(0, 10))
+
+        self.analysis_var = tk.StringVar()
+        self.analysis_combo = ttk.Combobox(analysis_frame, textvariable=self.analysis_var, width=20)
+        self.analysis_combo['values'] = [
+            'DOC', 'TDN', 'Anions', 'Cations', 'NO3AndNO2', 'NO2', 'NH4',
+            'PO4OrSRP', 'SiO2', 'TN', 'TP', 'TDP', 'TSS', 'PCAndPN',
+            'Chl_a', 'EEMs', 'Gases_GC', 'ICPOES', 'Additional'
+        ]
+        self.analysis_combo.grid(row=0, column=1, padx=(0, 20))
+
+        # Status selection
+        ttk.Label(analysis_frame, text="Set Status to:").grid(row=0, column=2, sticky="w", padx=(0, 10))
+
+        self.status_var = tk.StringVar()
+        self.status_entry = ttk.Entry(analysis_frame, textvariable=self.status_var, width=15)
+        self.status_entry.grid(row=0, column=3)
+
+        # Notes
+        ttk.Label(analysis_frame, text="Notes (optional):").grid(row=2, column=0, sticky="nw", padx=(0, 10),
+                                                                 pady=(10, 0))
+
+        # Use CTkTextbox for notes
+        self.notes_text = ctk.CTkTextbox(analysis_frame, height=60, width=400)
+        self.notes_text.grid(row=2, column=1, columnspan=3, pady=(10, 0), sticky="ew")
+
+        analysis_frame.grid_columnconfigure(1, weight=1)
+
+        # Buttons frame using CTk
+        buttons_frame = ctk.CTkFrame(main_frame)
+        buttons_frame.pack(fill=tk.X, pady=(10, 0))
+
+        update_btn = ctk.CTkButton(buttons_frame, text="Update All Selected", command=self.update_samples)
+        update_btn.pack(side=tk.RIGHT, padx=(10, 0))
+
+        cancel_btn = ctk.CTkButton(buttons_frame, text="Cancel", command=self.on_close)
+        cancel_btn.pack(side=tk.RIGHT)
+
+    def populate_selected_samples(self):
+        # Clear existing items
+        for item in self.samples_tree.get_children():
+            self.samples_tree.delete(item)
+
+        # Add selected samples
+        for sample in self.selected_samples:
+            values = [
+                sample.get('UNH#', ''),
+                sample.get('Sample_Name', ''),
+                sample.get('Project', ''),
+                sample.get('Collection_Date', '')
+            ]
+            self.samples_tree.insert("", tk.END, values=values)
+
+        # Update title to show count
+        count = len(self.selected_samples)
+        self.title(f"Batch Update Analysis Status ({count} samples selected)")
+
+
+    def update_samples(self):
+        analysis_type = self.analysis_var.get().strip()
+        status = self.status_var.get().strip()
+        notes = self.notes_text.get("1.0", tk.END).strip()
+        due_date_done = self.due_date_done_var.get()
+
+        # Check for empty fields if due_date_done is not selected
+        if not due_date_done and not (analysis_type and status):
+            messagebox.showerror("Error",
+                                 "Please select an analysis type and enter a status, or check 'Mark Due Date as Complete'.",
+                                 parent=self)
+            self.focus_force()
+            return
+
+        # Confirm the update
+        count = len(self.selected_samples)
+        confirm_msg = f"Update {count} samples?\n\n"
+
+        if due_date_done:
+            confirm_msg += "Due Date: Mark as Complete\n"
+
+        if analysis_type:
+            confirm_msg += f"Analysis: {analysis_type}\nStatus: {status}\n"
+
+        if notes:
+            confirm_msg += f"\nNotes: {notes[:50]}{'...' if len(notes) > 50 else ''}"
+
+        result = messagebox.askyesno("Confirm Batch Update", confirm_msg, parent=self)
+        if not result:
+            self.focus_force()
+            return
+
+        try:
+            success_count = self.parent.perform_batch_update(
+                self.selected_samples, analysis_type, status, notes, due_date_done
+            )
+
+            if success_count > 0:
+                messagebox.showinfo("Success", f"Successfully updated {success_count} samples.", parent=self)
+                self.parent.refresh_data()
+                self.on_close()
+            else:
+                messagebox.showwarning("Warning", "No samples were updated.", parent=self)
+                self.focus_force()
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Error during batch update: {str(e)}", parent=self)
+            self.focus_force()
+            print(f"Batch update error: {e}")
+            print(traceback.format_exc())
+
 class SampleTrackerApp(ctk.CTk):
 
-    # Now, modify the __init__ method to add the Edit tab
     def __init__(self):
         super().__init__()
 
@@ -73,10 +290,26 @@ class SampleTrackerApp(ctk.CTk):
         self.percent_date_filtered = 0
         self.years_limit = 1  # Changed from 8 to 1 year
 
+        # Track selected samples for batch operations
+        self.selected_samples = {}
+
+        # Track checkbox filter state
+        self.UNCHECKED = "\N{BALLOT BOX}"  # ☒ alt: BALLOT BOX WITH X
+        self.CHECKED = "\N{BALLOT BOX WITH CHECK}"  # ☑
+
         # Connect to Access database AFTER initializing variables
         self.db_path = get_database_path()
         self.password = "Jh1188!"
         self.data = self._load_data_from_database()  # This should respect the date filter now
+
+        # Style for treeview with checkboxes
+        style = ttk.Style(self)
+        style.theme_use("clam")
+        style.configure("mystyle.Treeview", font=("DejaVu Sans", 14), rowheight=35)
+        style.configure("mystyle.Treeview.Heading", font=("DejaVu Sans", 14, "bold"))
+        style.map("mystyle.Treeview",
+                  background=[("selected", "#cde4ff")],
+                  foreground=[("selected", "black")])
 
         # Then create UI elements
         self.create_tabview()
@@ -84,6 +317,7 @@ class SampleTrackerApp(ctk.CTk):
         self.create_import_tab()
         self.create_edit_tab()
         self.create_calendar_tab()
+
         # Selected record for editing
         self.selected_record = None
         self.analysis_data = None
@@ -122,27 +356,6 @@ class SampleTrackerApp(ctk.CTk):
         self.tabview.add("Import")
         self.tabview.add("Edit")
         self.tabview.add("Calendar")  # Add the Calendar tab
-
-    def _get_db_connection(self):
-        """Create a connection to the Access database."""
-        try:
-            conn_str = (
-                r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
-                f"DBQ={self.db_path};"
-                f"PWD={self.password};"
-                "Extended Properties='Excel 8.0;IMEX=1;'"
-            )
-
-            conn = pyodbc.connect(conn_str, autocommit=True)
-            conn.setdecoding(pyodbc.SQL_CHAR, encoding='latin1')
-            conn.setdecoding(pyodbc.SQL_WCHAR, encoding='latin1')
-            conn.setencoding(encoding='latin1')
-
-            return conn
-        except Exception as e:
-            print(f"Error connecting to database: {e}")
-            messagebox.showerror("Database Error", f"Could not connect to the database: {str(e)}")
-            return None
 
     def _load_data_from_database(self):
         """Load data from Access database instead of Excel."""
@@ -190,7 +403,8 @@ class SampleTrackerApp(ctk.CTk):
                     # Apply the filter directly in SQL for initial load
                     cursor.execute(
                         """
-                        SELECT * FROM [WRRC sample info] 
+                        SELECT *
+                        FROM [WRRC sample info]
                         WHERE ([Collection_Date] >= ? OR [Collection_Date] IS NULL)
                         """,
                         (cutoff_date_str,)
@@ -239,10 +453,6 @@ class SampleTrackerApp(ctk.CTk):
         except Exception as e:
             print(f"Error connecting to Access database: {e}")
             print(f"Detailed error info: {str(e)}")
-            return pd.DataFrame()
-
-            # Attempt to fall back to Excel as a last resort
-
             return pd.DataFrame()
 
     def search_by_sample(self):
@@ -462,598 +672,198 @@ class SampleTrackerApp(ctk.CTk):
         self.project_search_entry.delete(0, "end")
         self.show_all()
 
-    def create_tabview(self):
-        """Create the main tabview for the application."""
-        self.tabview = ctk.CTkTabview(self)
-        self.tabview.pack(fill="both", expand=True, padx=10, pady=10)
-
-        # Add tabs
-        self.tabview.add("Search")
-        self.tabview.add("Import")
-        self.tabview.add("Edit")
-        self.tabview.add("Calendar")  # Add the Calendar tab
-
-    def edit_selected_due_sample(self, event=None):
-        """Handle double-click on a sample in the due samples list."""
-        selected_items = self.due_samples_tree.selection()
-        if not selected_items:
-            return
-
-        # Get the selected item
-        item_id = selected_items[0]
-        item_values = self.due_samples_tree.item(item_id, "values")
-
-        # Find this sample in the database by UNH#
-        unh_id = item_values[0]  # First column is UNH#
-
-        # Query the database for the full record
-        conn = self._get_db_connection()
-        if not conn:
-            return
-
-        cursor = conn.cursor()
-
+    # Enhanced calendar methods from second version
+    def _normalize_due_date(self, val):
+        """Return a date() for Due_Date cell or None if unparsable."""
+        if pd.isna(val):
+            return None
         try:
-            # Get sample info
-            query = "SELECT * FROM [WRRC sample info] WHERE [UNH#] = ?"
-            cursor.execute(query, (unh_id,))
-
-            # Get column names
-            columns = [column[0] for column in cursor.description]
-
-            # Get the row
-            row = cursor.fetchone()
-
-            if row:
-                # Create a dictionary from column names and values
-                record_dict = {}
-                for i, col in enumerate(columns):
-                    record_dict[col] = row[i] if i < len(row) else ""
-
-                # Store the selected record
-                self.selected_record = record_dict
-
-                # Load analysis data for this record
-                self.load_analysis_data(unh_id)
-
-                # Switch to the Edit tab
-                self.tabview.set("Edit")
-
-                # Populate the edit form
-                self.populate_edit_form()
-            else:
-                messagebox.showwarning("Sample Not Found", f"No sample record found for UNH# {unh_id}")
-
+            if isinstance(val, datetime.date) and not isinstance(val, datetime.datetime):
+                return val
+            if isinstance(val, datetime.datetime):
+                return val.date()
+            if isinstance(val, str) and val.strip():
+                # try several formats
+                for fmt in ('%Y-%m-%d', '%m/%d/%Y', '%m/%d/%y', '%d-%m-%Y', '%Y/%m/%d'):
+                    try:
+                        return datetime.datetime.strptime(val.strip(), fmt).date()
+                    except Exception:
+                        pass
         except Exception as e:
-            print(f"Error loading sample for editing: {str(e)}")
-            traceback.print_exc()
-            messagebox.showerror("Error", f"Could not load sample for editing: {str(e)}")
-        finally:
-            cursor.close()
-            conn.close()
-    # Add the edit_selected_record method
-    def edit_selected_record(self):
-        """Edit the selected record from the search results."""
-        selected_items = self.tree.selection()
-        if not selected_items:
-            messagebox.showwarning("No Selection", "Please select a record to edit.")
-            return
+            print(f"_normalize_due_date error: {e}")
+        return None
 
-        # Get the selected item
-        item_id = selected_items[0]
+    def _focus_sample_in_tree(self, row_series):
+        """Switch to Search tab, show all, then focus the matching row."""
+        print("Focusing sample in tree...")
+        self.tabview.set("Search")
+        self.show_all()
 
-        # Get the values from the selected item
-        item_values = self.tree.item(item_id, "values")
+        # match using UNH# if present, else Sample_Name
+        key_unh = str(row_series.get('UNH#', '')).strip()
+        key_name = str(row_series.get('Sample_Name', '')).strip().lower()
+        target_iid = None
 
-        # Get column names
-        columns = self.tree.cget("columns")
+        for iid in self.tree.get_children():
+            values = self.tree.item(iid, 'values')
+            # values[0] is checkbox, then columns
+            cols = self.data.columns.tolist()
+            try:
+                idx_unh = cols.index('UNH#') + 1
+            except ValueError:
+                idx_unh = None
+            try:
+                idx_name = cols.index('Sample_Name') + 1
+            except ValueError:
+                idx_name = None
 
-        # Create a dictionary from column names and values
-        record_dict = {}
-        for i, col in enumerate(columns):
-            record_dict[col] = item_values[i] if i < len(item_values) else ""
+            unh_val = (values[idx_unh] if idx_unh is not None and idx_unh < len(values) else '').strip()
+            name_val = (values[idx_name] if idx_name is not None and idx_name < len(values) else '').strip().lower()
 
-        # Store the selected record
-        self.selected_record = record_dict
+            if key_unh and unh_val == key_unh:
+                target_iid = iid
+                break
+            if key_name and name_val == key_name:
+                target_iid = iid
+                break
 
-        # Load analysis data for this record
-        unh_id = record_dict.get("UNH#", "")
-        if unh_id:
-            self.load_analysis_data(unh_id)
+        if target_iid:
+            self.tree.see(target_iid)
+            self.tree.selection_set(target_iid)
+            print("Sample focused in Search table.")
         else:
-            self.analysis_data = None
-
-        # Switch to the Edit tab
-        self.tabview.set("Edit")
-
-        # Populate the edit form
-        self.populate_edit_form()
-
-    def create_calendar_tab(self):
-        """Create a calendar view tab for visualizing due dates."""
-        calendar_tab = self.tabview.tab("Calendar")
-
-        # Create control frame
-        control_frame = ctk.CTkFrame(calendar_tab)
-        control_frame.pack(fill="x", padx=10, pady=10)
-
-        # Month and Year selection
-        today = datetime.date.today()
-        month_var = ctk.StringVar(value=calendar.month_name[today.month])
-        year_var = ctk.IntVar(value=today.year)
-
-        month_label = ctk.CTkLabel(control_frame, text="Month:")
-        month_label.grid(row=0, column=0, padx=10, pady=10, sticky="w")
-
-        month_options = [calendar.month_name[i] for i in range(1, 13)]
-        month_dropdown = ctk.CTkOptionMenu(
-            control_frame,
-            values=month_options,
-            variable=month_var,
-            command=lambda x: self.update_calendar_view()
-        )
-        month_dropdown.grid(row=0, column=1, padx=10, pady=10)
-
-        year_label = ctk.CTkLabel(control_frame, text="Year:")
-        year_label.grid(row=0, column=2, padx=10, pady=10, sticky="w")
-
-        # Create years list for dropdown (5 years back, 5 years forward)
-        current_year = today.year
-        years = list(range(current_year - 5, current_year + 6))  # 5 years before, 5 years after
-        year_dropdown = ctk.CTkOptionMenu(
-            control_frame,
-            values=[str(y) for y in years],
-            variable=year_var,
-            command=lambda x: self.update_calendar_view()
-        )
-        year_dropdown.grid(row=0, column=3, padx=10, pady=10)
-
-        # Refresh button
-        refresh_btn = ctk.CTkButton(
-            control_frame,
-            text="Refresh Calendar",
-            command=self.update_calendar_view
-        )
-        refresh_btn.grid(row=0, column=4, padx=20, pady=10)
-
-        # Store the month and year variables
-        self.calendar_month_var = month_var
-        self.calendar_year_var = year_var
-
-        # Create the calendar frame
-        self.calendar_frame = ctk.CTkFrame(calendar_tab)
-        self.calendar_frame.pack(fill="both", expand=True, padx=10, pady=10)
-
-        # Create samples due frame (shows list of samples due)
-        self.samples_due_frame = ctk.CTkFrame(calendar_tab)
-        self.samples_due_frame.pack(fill="both", expand=True, padx=10, pady=10)
-
-        samples_due_label = ctk.CTkLabel(
-            self.samples_due_frame,
-            text="Samples Due on Selected Date",
-            font=("Helvetica", 16, "bold")
-        )
-        samples_due_label.pack(pady=10)
-
-        # Create a treeview to show samples due
-        columns = ["UNH#", "Sample_Name", "Collection_Date", "Due_Date", "Project"]
-        self.due_samples_tree = ttk.Treeview(
-            self.samples_due_frame,
-            columns=columns,
-            show="headings"
-        )
-
-        # Configure columns
-        for col in columns:
-            self.due_samples_tree.heading(col, text=col)
-            self.due_samples_tree.column(col, width=150, minwidth=50)
-
-        self.due_samples_tree.pack(fill="both", expand=True, padx=5, pady=5)
-
-        # Add scrollbars for the treeview
-        y_scrollbar = ttk.Scrollbar(
-            self.samples_due_frame,
-            orient="vertical",
-            command=self.due_samples_tree.yview
-        )
-        y_scrollbar.pack(side="right", fill="y")
-
-        x_scrollbar = ttk.Scrollbar(
-            self.samples_due_frame,
-            orient="horizontal",
-            command=self.due_samples_tree.xview
-        )
-        x_scrollbar.pack(side="bottom", fill="x")
-
-        self.due_samples_tree.configure(
-            yscrollcommand=y_scrollbar.set,
-            xscrollcommand=x_scrollbar.set
-        )
-
-        # Add double-click event to go to edit
-        self.due_samples_tree.bind("<Double-1>", self.edit_selected_due_sample)
-        # Initialize the calendar view
-        self.initialize_calendar_view()
-
-    def initialize_calendar_view(self):
-        """Initialize the calendar view with current month's due dates."""
-        # Clear any existing widgets in the frame
-        for widget in self.calendar_frame.winfo_children():
-            widget.destroy()
-
-        # Get current month and year
-        month_name = self.calendar_month_var.get()
-        month_num = list(calendar.month_name).index(month_name)
-        year = int(self.calendar_year_var.get())
-
-        # Create title
-        title_label = ctk.CTkLabel(
-            self.calendar_frame,
-            text=f"{month_name} {year}",
-            font=("Helvetica", 18, "bold")
-        )
-        title_label.pack(pady=10)
-
-        # Create calendar grid
-        days_frame = ctk.CTkFrame(self.calendar_frame)
-        days_frame.pack(fill="both", expand=True, padx=10, pady=5)
-
-        # Add day headers
-        days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-        for i, day in enumerate(days):
-            day_label = ctk.CTkLabel(
-                days_frame,
-                text=day,
-                font=("Helvetica", 12, "bold")
-            )
-            day_label.grid(row=0, column=i, padx=5, pady=5, sticky="nsew")
-
-        # Get calendar for the month
-        cal = calendar.monthcalendar(year, month_num)
-
-        # Get samples due this month
-        due_samples = self.get_samples_due_in_month(year, month_num)
-
-        # Dictionary to store samples by day
-        samples_by_day = {}
-        for sample in due_samples:
-            due_date = sample.get('Due_Date')
-            if due_date:
-                try:
-                    # Parse the due date
-                    if isinstance(due_date, str):
-                        due_date_obj = datetime.datetime.strptime(due_date, '%Y-%m-%d').date()
-                    else:
-                        due_date_obj = due_date
-
-                    # Group samples by day
-                    day = due_date_obj.day
-                    if day not in samples_by_day:
-                        samples_by_day[day] = []
-
-                    # Add UNH# to the list for this day
-                    samples_by_day[day].append(sample)
-                except Exception as e:
-                    print(f"Error parsing due date: {due_date} - {str(e)}")
-
-        # Create day cells
-        for week_idx, week in enumerate(cal):
-            for day_idx, day in enumerate(week):
-                if day == 0:
-                    # Empty cell for days not in this month
-                    empty_frame = ctk.CTkFrame(days_frame, fg_color="transparent")
-                    empty_frame.grid(row=week_idx + 1, column=day_idx, padx=2, pady=2, sticky="nsew")
-                else:
-                    # Create a frame for the day
-                    day_frame = ctk.CTkFrame(days_frame)
-                    day_frame.grid(row=week_idx + 1, column=day_idx, padx=2, pady=2, sticky="nsew")
-
-                    # Add day number
-                    day_num_label = ctk.CTkLabel(
-                        day_frame,
-                        text=str(day),
-                        font=("Helvetica", 12)
-                    )
-                    day_num_label.pack(pady=(5, 0))
-
-                    # Check if there are samples due on this day
-                    if day in samples_by_day:
-                        day_samples = samples_by_day[day]
-                        count = len(day_samples)
-
-                        # Create a mini-list of UNH IDs (limited to first 3 if many)
-                        if count > 0:
-                            if count <= 3:
-                                # Show all UNH IDs if 3 or fewer
-                                for sample in day_samples:
-                                    # When creating the UNH# labels in the calendar view:
-                                    unh_id = sample.get('UNH#', '')
-                                    sample_label = ctk.CTkLabel(
-                                        day_frame,
-                                        text=f"UNH# {unh_id}",
-                                        font=("Helvetica", 11),
-                                        text_color="red"
-                                    )
-                                    sample_label.pack(pady=0)
-                                    # Bind the label to directly edit this specific UNH#
-                                    sample_label.bind("<Button-1>",
-                                                      lambda event, uid=unh_id: self.edit_sample_by_unh(event, uid))
-                            else:
-                                # If more than 3, show count with first UNH ID
-                                first_unh = day_samples[0].get('UNH#', '')
-                                sample_label = ctk.CTkLabel(
-                                    day_frame,
-                                    text=f"{count} due: {first_unh}...",
-                                    font=("Helvetica", 11),
-                                    text_color="red"
-                                )
-                                sample_label.pack(pady=0)
-                                sample_label.bind("<Button-1>",
-                                                  lambda event, d=day: self.show_samples_due_on_day(d))
-
-                    # Make the day clickable
-                    day_frame.bind("<Button-1>",
-                                   lambda event, d=day: self.show_samples_due_on_day(d))
-                    day_num_label.bind("<Button-1>",
-                                       lambda event, d=day: self.show_samples_due_on_day(d))
-
-        # Configure grid to expand properly
-        for i in range(7):  # 7 columns
-            days_frame.columnconfigure(i, weight=1)
-
-        for i in range(7):  # Up to 6 weeks plus header
-            days_frame.rowconfigure(i, weight=1)
-
-    def update_filter_checkbox_label(self, percent_filtered):
-        """Update the checkbox label with the percentage of records that would be filtered."""
-        if hasattr(self, 'filter_by_date_checkbox'):
-            years_limit = getattr(self, 'years_limit', 1)  # Default to 1 year if not set
-
-            if percent_filtered < 5:
-                # Less than 5% would be filtered - let the user know
-                self.filter_by_date_checkbox.configure(
-                    text=f"Limit results to samples less than {years_limit} year old (only affects {percent_filtered:.1f}% of records)"
-                )
-            else:
-                # Significant filtering - show the percentage
-                self.filter_by_date_checkbox.configure(
-                    text=f"Limit results to samples less than {years_limit} year old (filters out {percent_filtered:.1f}% of records)"
-                )
-
-    def update_calendar_view(self):
-        """Update the calendar view when month or year changes."""
-        self.initialize_calendar_view()
-        # Clear the samples due treeview
-        for item in self.due_samples_tree.get_children():
-            self.due_samples_tree.delete(item)
-
-    def get_samples_due_in_month(self, year, month):
-        """Get all samples with due dates in the specified month and year."""
-        try:
-            conn = self._get_db_connection()
-            if not conn:
-                return []
-
-            cursor = conn.cursor()
-
-            # Create date range for the month
-            start_date = f"{year}-{month:02d}-01"
-
-            # Calculate the last day of the month
-            if month == 12:
-                next_month = 1
-                next_year = year + 1
-            else:
-                next_month = month + 1
-                next_year = year
-
-            end_date = f"{next_year}-{next_month:02d}-01"
-
-            # Log what we're doing for debugging
-            print(f"Querying samples due between {start_date} and {end_date}")
-
-            # Only query the specific fields we need rather than using SELECT *
-            # This joins the tables only for samples with due dates in the specified month
-            query = """
-            SELECT a.[UNH#], s.Sample_Name, s.Collection_Date, a.Due_Date, s.Project
-            FROM [WRRC sample analysis requested] AS a 
-            LEFT JOIN [WRRC sample info] AS s 
-            ON a.[UNH#] = s.[UNH#]
-            WHERE a.Due_Date >= ? AND a.Due_Date < ?
-            ORDER BY a.Due_Date
-            """
-
-            cursor.execute(query, (start_date, end_date))
-
-            # Fetch all results
-            samples = []
-            for row in cursor.fetchall():
-                sample = {
-                    'UNH#': row[0] if row[0] else '',
-                    'Sample_Name': row[1] if row[1] else '',
-                    'Collection_Date': row[2] if row[2] else '',
-                    'Due_Date': row[3] if row[3] else '',
-                    'Project': row[4] if row[4] else ''
-                }
-                samples.append(sample)
-
-            cursor.close()
-            conn.close()
-
-            print(f"Found {len(samples)} samples due in {month}/{year}")
-            return samples
-
-        except Exception as e:
-            print(f"Error getting samples due in month: {str(e)}")
-            traceback.print_exc()
-            return []
-
-    def edit_selected_due_sample(self, event=None):
-        """Handle double-click on a sample in the due samples list."""
-        # Get the treeview that was clicked
-        tree = event.widget
-
-        # Get the selected item
-        selected_items = tree.selection()
-        if not selected_items:
-            print("No item selected")
-            return
-
-        # Get the selected item
-        item_id = selected_items[0]
-        item_values = tree.item(item_id, "values")
-
-        # Find this sample in the database by UNH#
-        unh_id = item_values[0]  # First column is UNH#
-        print(f"Opening UNH# {unh_id} for editing")
-
-        # Query the database for the full record
-        conn = self._get_db_connection()
-        if not conn:
-            return
-
-        cursor = conn.cursor()
-
-        try:
-            # Get sample info
-            query = "SELECT * FROM [WRRC sample info] WHERE [UNH#] = ?"
-            cursor.execute(query, (unh_id,))
-
-            # Get column names
-            columns = [column[0] for column in cursor.description]
-
-            # Get the row
-            row = cursor.fetchone()
-
-            if row:
-                # Create a dictionary from column names and values
-                record_dict = {}
-                for i, col in enumerate(columns):
-                    record_dict[col] = row[i] if i < len(row) else ""
-
-                # Store the selected record
-                self.selected_record = record_dict
-
-                # Load analysis data for this record
-                self.load_analysis_data(unh_id)
-
-                # Switch to the Edit tab
-                self.tabview.set("Edit")
-
-                # Populate the edit form
-                self.populate_edit_form()
-            else:
-                messagebox.showwarning("Sample Not Found", f"No sample record found for UNH# {unh_id}")
-
-        except Exception as e:
-            print(f"Error loading sample for editing: {str(e)}")
-            traceback.print_exc()
-            messagebox.showerror("Error", f"Could not load sample for editing: {str(e)}")
-        finally:
-            cursor.close()
-            conn.close()
-
-    def edit_sample_by_unh(self, event, unh_id):
-        """Open the edit tab for a specific UNH#."""
-        print(f"Opening UNH# {unh_id} for editing from calendar")
-
-        # Query the database for the full record
-        conn = self._get_db_connection()
-        if not conn:
-            return
-
-        cursor = conn.cursor()
-
-        try:
-            # Get sample info
-            query = "SELECT * FROM [WRRC sample info] WHERE [UNH#] = ?"
-            cursor.execute(query, (unh_id,))
-
-            # Get column names
-            columns = [column[0] for column in cursor.description]
-
-            # Get the row
-            row = cursor.fetchone()
-
-            if row:
-                # Create a dictionary from column names and values
-                record_dict = {}
-                for i, col in enumerate(columns):
-                    record_dict[col] = row[i] if i < len(row) else ""
-
-                # Store the selected record
-                self.selected_record = record_dict
-
-                # Load analysis data for this record
-                self.load_analysis_data(unh_id)
-
-                # Switch to the Edit tab
-                self.tabview.set("Edit")
-
-                # Populate the edit form
-                self.populate_edit_form()
-            else:
-                messagebox.showwarning("Sample Not Found", f"No sample record found for UNH# {unh_id}")
-
-        except Exception as e:
-            print(f"Error loading sample for editing: {str(e)}")
-            traceback.print_exc()
-            messagebox.showerror("Error", f"Could not load sample for editing: {str(e)}")
-        finally:
-            cursor.close()
-            conn.close()
-
-    def show_samples_due_on_day(self, day):
-        """Show samples due on the selected day in the month."""
-        try:
-            # Get current month and year
-            month_name = self.calendar_month_var.get()
-            month_num = list(calendar.month_name).index(month_name)
-            year = int(self.calendar_year_var.get())
-
-            # Create the date string
-            selected_date = f"{year}-{month_num:02d}-{day:02d}"
-
-            # Clear existing items in treeview
-            for item in self.due_samples_tree.get_children():
-                self.due_samples_tree.delete(item)
-
-            # Get the connection
-            conn = self._get_db_connection()
-            if not conn:
+            print("Could not find the sample in current table view.")
+
+    def _open_day_popup(self, date_obj, rows):
+        """Show a pop-out listing all samples for a given date."""
+        print(f"Opening day popup for {date_obj} with {len(rows)} samples")
+        top = tk.Toplevel(self)
+        top.title(f"Samples on {date_obj.strftime('%Y-%m-%d')}")
+        top.geometry("800x500")
+
+        lbl = ttk.Label(top, text=f"Samples due {date_obj.strftime('%A, %B %d, %Y')}",
+                        font=("Helvetica", 14, "bold"))
+        lbl.pack(pady=8)
+
+        frame = ttk.Frame(top)
+        frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        cols = ['UNH#', 'Sample_Name', 'Project', 'Sub_Project']
+        tv = ttk.Treeview(frame, columns=cols, show='headings', height=15)
+        for c in cols:
+            tv.heading(c, text=c)
+            tv.column(c, width=180)
+
+        vs = ttk.Scrollbar(frame, orient='vertical', command=tv.yview)
+        hs = ttk.Scrollbar(frame, orient='horizontal', command=tv.xview)
+        tv.configure(yscrollcommand=vs.set, xscrollcommand=hs.set)
+        tv.grid(row=0, column=0, sticky='nsew')
+        vs.grid(row=0, column=1, sticky='ns')
+        hs.grid(row=1, column=0, sticky='ew')
+        frame.grid_rowconfigure(0, weight=1)
+        frame.grid_columnconfigure(0, weight=1)
+
+        for r in rows:
+            tv.insert('', 'end', values=[
+                r.get('UNH#', ''),
+                r.get('Sample_Name', ''),
+                r.get('Project', ''),
+                r.get('Sub_Project', ''),
+            ])
+
+        def on_open(event=None):
+            sel = tv.selection()
+            if not sel:
                 return
+            item = sel[0]
+            idx = tv.index(item)
+            row_series = rows[idx]
+            self._focus_sample_in_tree(row_series)
+            top.destroy()
 
-            cursor = conn.cursor()
+        open_btn = ttk.Button(top, text="Open Selected", command=on_open)
+        open_btn.pack(pady=8)
 
-            # Query for samples due on this specific day - using proper Access SQL syntax
-            query = """
-            SELECT a.[UNH#], s.Sample_Name, s.Collection_Date, a.Due_Date, s.Project
-            FROM [WRRC sample analysis requested] AS a 
-            INNER JOIN [WRRC sample info] AS s 
-            ON a.[UNH#] = s.[UNH#]
-            WHERE a.Due_Date = ?
-            ORDER BY s.Project, s.Sample_Name
-            """
+        tv.bind('<Double-1>', on_open)
 
-            cursor.execute(query, (selected_date,))
+    def _clear_calendar_grid(self):
+        """Remove all widgets inside the month grid."""
+        for w in self.month_grid_frame.winfo_children():
+            w.destroy()
 
-            # Add samples to the treeview
-            for row in cursor.fetchall():
-                values = [
-                    row[0] if row[0] else "",  # UNH#
-                    row[1] if row[1] else "",  # Sample_Name
-                    row[2] if row[2] else "",  # Collection_Date
-                    row[3] if row[3] else "",  # Due_Date
-                    row[4] if row[4] else ""  # Project
-                ]
-                self.due_samples_tree.insert("", "end", values=values)
+    def _render_calendar_month(self):
+        """Render the 7×6 calendar month grid with sample chips."""
+        print(f"Rendering month: {self.current_year}-{self.current_month:02d}")
+        self.month_label.configure(text=f"{pycal.month_name[self.current_month]} {self.current_year}")
+        self._clear_calendar_grid()
 
-            cursor.close()
-            conn.close()
+        # Weekday header
+        for i, wd in enumerate(pycal.weekheader(2).split()):
+            hdr = ttk.Label(self.month_grid_frame, text=wd, anchor='center', font=('Helvetica', 12, 'bold'))
+            hdr.grid(row=0, column=i, sticky='nsew', padx=2, pady=2)
 
-        except Exception as e:
-            print(f"Error showing samples due on day: {str(e)}")
-            traceback.print_exc()
+        for c in range(7):
+            self.month_grid_frame.grid_columnconfigure(c, weight=1)
+        # rows: one header + 6 weeks max
+        for r in range(1, 7):
+            self.month_grid_frame.grid_rowconfigure(r, weight=1)
+
+        by_date = self._group_samples_by_date()
+        monthcal = pycal.Calendar(firstweekday=0).monthdatescalendar(self.current_year, self.current_month)
+
+        MAX_INLINE = 4  # show up to 4 items inline
+
+        for r, week in enumerate(monthcal, start=1):
+            for c, day in enumerate(week):
+                in_month = (day.month == self.current_month)
+                cell = ttk.Frame(self.month_grid_frame, relief='groove', borderwidth=1)
+                cell.grid(row=r, column=c, sticky='nsew', padx=2, pady=2)
+
+                date_hdr = ttk.Label(cell, text=str(day.day),
+                                     font=('Helvetica', 11, 'bold'),
+                                     foreground=('black' if in_month else 'gray'))
+                date_hdr.pack(anchor='ne', padx=4, pady=(2, 0))
+
+                rows = by_date.get(day, [])
+                # show up to 4
+                shown = 0
+                for row_series in rows[:MAX_INLINE]:
+                    label_txt = f"{str(row_series.get('UNH#', ''))} — {str(row_series.get('Sample_Name', ''))}"
+                    if len(label_txt) > 38:
+                        label_txt = label_txt[:35] + "..."
+                    lnk = ttk.Label(cell, text=label_txt, cursor='hand2', foreground='blue')
+                    lnk.pack(anchor='w', padx=6, pady=1)
+
+                    def handler(rs=row_series):
+                        print(f"Clicked sample chip: {rs.get('UNH#', '')} / {rs.get('Sample_Name', '')}")
+                        self._focus_sample_in_tree(rs)
+
+                    lnk.bind("<Button-1>", lambda e, h=handler: h())
+                    shown += 1
+
+                remaining = len(rows) - shown
+                if remaining > 0:
+                    btn = ttk.Button(cell, text=f"Show all {len(rows)}", width=16,
+                                     command=lambda d=day, rws=rows: self._open_day_popup(d, rws))
+                    btn.pack(anchor='w', padx=6, pady=4)
+
+    def _go_prev_month(self):
+        print("Navigating to previous month")
+        if self.current_month == 1:
+            self.current_month = 12
+            self.current_year -= 1
+        else:
+            self.current_month -= 1
+        self._render_calendar_month()
+
+    def _go_next_month(self):
+        print("Navigating to next month")
+        if self.current_month == 12:
+            self.current_month = 1
+            self.current_year += 1
+        else:
+            self.current_month += 1
+        self._render_calendar_month()
 
     def create_edit_tab(self):
         """Create the edit tab contents."""
@@ -1310,6 +1120,204 @@ class SampleTrackerApp(ctk.CTk):
         )
         cancel_button.pack(side="left", padx=10)
 
+    def _insert_new_analysis_record(self, cursor, unh_id):
+        """Insert a new record in the WRRC sample analysis requested table."""
+        try:
+            # Build columns and values for the INSERT statement
+            columns = ["[UNH#]"]
+            values = [unh_id]
+
+            for field, entry in self.analysis_entries.items():
+                # Handle Due_Date field which uses DateEntry
+                if field == "Due_Date":
+                    if not self.analysis_completed_var.get() and hasattr(entry, 'get_date'):
+                        due_date = entry.get_date().strftime('%Y-%m-%d')
+                        if due_date:
+                            columns.append(f"[{field}]")
+                            values.append(due_date)
+                    # If analysis is completed, don't add Due_Date (it will be NULL by default)
+                else:
+                    # Regular entry fields
+                    value = entry.get().strip()
+                    if value:
+                        columns.append(f"[{field}]")
+                        values.append(value)
+
+            # If only UNH#, no need to insert
+            if len(columns) <= 1:
+                return False
+
+            # Build the query
+            query = f"INSERT INTO [WRRC sample analysis requested] ({', '.join(columns)}) VALUES ({', '.join(['?'] * len(values))})"
+
+            print(f"Analysis insert query: {query}")
+            print(f"Parameters: {values}")
+
+            # Execute the query
+            cursor.execute(query, values)
+
+            return True
+
+        except Exception as e:
+            print(f"Error inserting analysis info: {str(e)}")
+            raise
+
+    def _update_analysis_record(self, cursor):
+        """Update a record in the WRRC sample analysis requested table."""
+        try:
+            # Get the primary key value
+            unh_id = self.selected_record.get("UNH#", "")
+            if not unh_id:
+                return False
+
+            # Check if we have analysis data
+            if not self.analysis_data:
+                # Check if we have any new values to insert
+                has_new_values = False
+                for field, entry in self.analysis_entries.items():
+                    if field == "Due_Date":
+                        # If analysis is not completed, check if date entry has value
+                        if not self.analysis_completed_var.get() and hasattr(entry, 'get_date'):
+                            has_new_values = True
+                            break
+                    elif entry.get().strip():
+                        has_new_values = True
+                        break
+
+                if has_new_values:
+                    # Need to INSERT a new record
+                    return self._insert_new_analysis_record(cursor, unh_id)
+                else:
+                    return False
+
+            # We have existing analysis data, so update it
+            set_clauses = []
+            params = []
+
+            for field, entry in self.analysis_entries.items():
+                # Get the current value from the analysis data
+                current_value = self.analysis_data.get(field, "")
+
+                # Special handling for Due_Date field
+                if field == "Due_Date":
+                    if self.analysis_completed_var.get():
+                        # Analysis is completed, set Due_Date to NULL
+                        # Only add to update if current value is not already NULL
+                        if current_value is not None and current_value != "":
+                            print(f"Setting Due_Date to NULL for UNH# {unh_id} (analysis completed)")
+                            set_clauses.append(f"[{field}] = ?")
+                            params.append(None)  # This will set it to NULL in the database
+                    elif hasattr(entry, 'get_date'):
+                        # Analysis not completed, get date from DateEntry
+                        try:
+                            new_value = entry.get_date().strftime('%Y-%m-%d')
+                            # If different from current, add to update
+                            if str(current_value) != new_value:
+                                print(f"Updating Due_Date to {new_value} for UNH# {unh_id}")
+                                set_clauses.append(f"[{field}] = ?")
+                                params.append(new_value)
+                        except Exception as e:
+                            print(f"Error getting date from DateEntry: {str(e)}")
+                else:
+                    # Regular fields
+                    new_value = entry.get().strip()
+
+                    # If there's a difference, add to the update
+                    if str(current_value) != new_value:
+                        set_clauses.append(f"[{field}] = ?")
+
+                        # Handle empty strings as NULL for appropriate fields
+                        if not new_value:
+                            params.append(None)
+                        else:
+                            params.append(new_value)
+
+            # If no changes, return early
+            if not set_clauses:
+                print("No changes to update in analysis data")
+                return False
+
+            # Build the query
+            query = f"UPDATE [WRRC sample analysis requested] SET {', '.join(set_clauses)} WHERE [UNH#] = ?"
+            params.append(unh_id)
+
+            print(f"Analysis update query: {query}")
+            print(f"Parameters: {params}")
+
+            # Execute the query
+            cursor.execute(query, params)
+            print(f"Successfully updated analysis data for UNH# {unh_id}")
+
+            return True
+
+        except Exception as e:
+            print(f"Error updating analysis info: {str(e)}")
+            raise
+
+    def save_edited_record(self):
+        """Save the edited record back to the database."""
+        if not self.selected_record:
+            messagebox.showwarning("No Record", "No record is selected for editing.")
+            return
+
+        try:
+            # Get connection to database
+            conn = self._get_db_connection()
+            if not conn:
+                self.edit_status_var.set("Error: Could not connect to the database")
+                return
+
+            cursor = conn.cursor()
+
+            # Begin transaction
+            if conn.autocommit:
+                conn.autocommit = False
+
+            # Update sample info table
+            success_sample = self._update_sample_info_record(cursor)
+
+            # Update analysis table
+            success_analysis = self._update_analysis_record(cursor)
+
+            if success_sample or success_analysis:
+                # Commit transaction
+                conn.commit()
+                self.edit_status_var.set("Record updated successfully")
+
+                # Show the "Saved" message
+                self.saved_label.pack(side="right", padx=20)
+
+                # Schedule the label to disappear after 3 seconds
+                self.after(3000, lambda: self.saved_label.pack_forget())
+
+                # Refresh the data
+                self.data = self._load_data_from_database()
+                self.populate_treeview(self.data)
+
+                # Switch back to search tab after a brief delay to show the "Saved" message
+                # self.after(1500, lambda: self.tabview.set("Search"))
+            else:
+                conn.rollback()
+                self.edit_status_var.set("No changes were made")
+
+            cursor.close()
+            conn.close()
+
+        except Exception as e:
+            print(f"Error saving edited record: {str(e)}")
+            print(traceback.format_exc())
+            self.edit_status_var.set(f"Error: {str(e)}")
+            messagebox.showerror("Save Error", f"Error saving changes: {str(e)}")
+
+            # Try to rollback if there's a connection
+            try:
+                if conn and not conn.autocommit:
+                    conn.rollback()
+                    cursor.close()
+                    conn.close()
+            except:
+                pass
+
     def toggle_due_date_state(self):
         """Toggle the due date entry state based on the completed checkbox."""
         try:
@@ -1327,7 +1335,6 @@ class SampleTrackerApp(ctk.CTk):
                 print("Due date enabled - analysis not completed")
         except Exception as e:
             print(f"Error toggling due date state: {str(e)}")
-    # Add this method to your class:
     def fix_calendar_popup(self, event=None):
         """Ensure the calendar popup has enough space for navigation buttons."""
         try:
@@ -1356,6 +1363,7 @@ class SampleTrackerApp(ctk.CTk):
                     break
         except Exception as e:
             print(f"Error fixing calendar popup: {str(e)}")
+
 
     def check_related_data(self, unh_id):
         """
@@ -1447,6 +1455,439 @@ class SampleTrackerApp(ctk.CTk):
         except Exception as e:
             print(f"Error loading analysis data: {str(e)}")
             self.analysis_data = None
+
+    def _update_sample_info_record(self, cursor):
+        """Update a record in the WRRC sample info table."""
+        try:
+            # Get the primary key value
+            unh_id = self.selected_record.get("UNH#", "")
+            if not unh_id:
+                return False
+
+            # Build SET clause and parameters for the UPDATE statement
+            set_clauses = []
+            params = []
+
+            for field, entry in self.sample_info_entries.items():
+                # Skip UNH# as it's our key
+                if field == "UNH#":
+                    continue
+
+                # Get the current value and the new value
+                current_value = self.selected_record.get(field, "")
+                new_value = entry.get().strip()
+
+                # If there's a difference, add to the update
+                if str(current_value) != new_value:
+                    # Handle special fields
+                    if field == "DO%":
+                        set_clauses.append("[DO%] = ?")
+                    else:
+                        set_clauses.append(f"[{field}] = ?")
+
+                    # Handle empty strings as NULL for certain fields
+                    if not new_value and field in ['Collection_Date', 'Collection_Time', 'pH', 'Cond', 'Spec_Cond',
+                                                   'DO_Conc', 'DO%', 'Temperature', 'Salinity']:
+                        params.append(None)
+                    else:
+                        params.append(new_value)
+
+            # If no changes, return early
+            if not set_clauses:
+                print("No changes to update in sample info")
+                return False
+
+            # Build the query
+            query = f"UPDATE [WRRC sample info] SET {', '.join(set_clauses)} WHERE [UNH#] = ?"
+            params.append(unh_id)
+
+            print(f"Sample update query: {query}")
+            print(f"Parameters: {params}")
+
+            # Execute the query
+            cursor.execute(query, params)
+
+            return True
+
+        except Exception as e:
+            print(f"Error updating sample info: {str(e)}")
+            raise
+
+    def _populate_all_samples_tree(self):
+        """Fetch all samples with a Due_Date and populate the treeview."""
+        print("Populating 'All Samples with Due Dates' treeview...")
+
+        # Clear the treeview
+        for item in self.all_samples_tree.get_children():
+            self.all_samples_tree.delete(item)
+
+        conn = self._get_db_connection()
+        if not conn:
+            return
+
+        try:
+            cursor = conn.cursor()
+            query = """
+                    SELECT a.[UNH#], s.Sample_Name, s.Project, a.Due_Date
+                    FROM [WRRC sample analysis requested] AS a
+                        LEFT JOIN [WRRC sample info] AS s
+                    ON a.[UNH#] = s.[UNH#]
+                    WHERE a.Due_Date IS NOT NULL
+                    ORDER BY a.Due_Date ASC \
+                    """
+            cursor.execute(query)
+
+            for row in cursor.fetchall():
+                # Get values from the row
+                unh_id, sample_name, project, due_date = row
+
+                # Format the date and ensure all values are strings
+                if isinstance(due_date, datetime.datetime) or isinstance(due_date, datetime.date):
+                    formatted_due_date = due_date.strftime('%Y-%m-%d')
+                else:
+                    formatted_due_date = str(due_date)
+
+                # Ensure all values are strings to prevent display issues
+                formatted_row = [
+                    str(unh_id).strip("()").strip("'"),
+                    str(sample_name).strip("()").strip("'"),
+                    str(project).strip("()").strip("'"),
+                    formatted_due_date
+                ]
+
+                # Insert the formatted row into the treeview
+                self.all_samples_tree.insert("", "end", values=formatted_row)
+
+            cursor.close()
+            conn.close()
+            print("Successfully populated the 'All Samples with Due Dates' treeview.")
+
+        except Exception as e:
+            print(f"Error populating all samples treeview: {e}")
+            traceback.print_exc()
+            if conn:
+                conn.close()
+
+    def _group_samples_by_date(self):
+        """Group rows by normalized Due_Date -> list[Series]."""
+        print("Grouping samples by Due_Date...")
+        groups = {}
+
+        conn = self._get_db_connection()
+        if not conn:
+            return groups
+
+        try:
+            cursor = conn.cursor()
+            # Updated query to use the 'Due_Date' column name
+            query = """
+                    SELECT a.[UNH#], a.Due_Date, s.Sample_Name, s.Project, s.Sub_Project
+                    FROM [WRRC sample analysis requested] AS a
+                        LEFT JOIN [WRRC sample info] AS s
+                    ON a.[UNH#] = s.[UNH#]
+                    WHERE a.Due_Date IS NOT NULL \
+                    """
+            cursor.execute(query)
+
+            for row in cursor.fetchall():
+                due_date = self._normalize_due_date(row[1])
+                if due_date:
+                    sample_dict = {
+                        'UNH#': row[0],
+                        'Due_Date': row[1],
+                        'Sample_Name': row[2],
+                        'Project': row[3],
+                        'Sub_Project': row[4]
+                    }
+                    groups.setdefault(due_date, []).append(pd.Series(sample_dict))
+
+            cursor.close()
+            conn.close()
+
+        except Exception as e:
+            print(f"Error grouping samples by date: {str(e)}")
+
+        print(f"Found {sum(len(v) for v in groups.values())} samples across {len(groups)} dates.")
+        return groups
+
+    def _on_all_samples_tree_double_click(self, event):
+        """Handle double-click event on the all samples treeview."""
+        selected_item = self.all_samples_tree.selection()
+        if not selected_item:
+            return
+
+        item_values = self.all_samples_tree.item(selected_item, 'values')
+
+        # Check if item_values is not empty and get the UNH#
+        if item_values:
+            unh_id_raw = item_values[0]  # The UNH# is the first value
+
+            # Clean the UNH# string to remove any unwanted characters like '(', ')', ','
+            unh_id = str(unh_id_raw).strip().strip("()").strip(",'")
+        else:
+            return
+
+        if unh_id:
+            print(f"Double-clicked on UNH# {unh_id}. Switching to search tab.")
+
+            # Switch to the search tab
+            self.tabview.set("Search")
+
+            # Perform a search for this specific UNH#
+            self.sample_search_entry.delete(0, tk.END)
+            self.sample_search_entry.insert(0, unh_id)
+            self.search_by_sample()
+
+            # After searching, the treeview is populated. Find and select the item.
+            for item in self.tree.get_children():
+                values = self.tree.item(item, 'values')
+                if len(values) > 1 and str(values[1]).strip() == unh_id:
+                    self.tree.see(item)
+                    self.tree.selection_set(item)
+                    break
+
+    def create_calendar_tab(self):
+        """Create a custom month calendar with samples listed per day and a list of all samples with Due_Date."""
+        print("Creating custom calendar tab...")
+        calendar_tab = self.tabview.tab("Calendar")
+
+        outer = ctk.CTkFrame(calendar_tab)
+        outer.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # Header with nav
+        header = ctk.CTkFrame(outer)
+        header.pack(fill='x', pady=(0, 8))
+
+        prev_btn = ctk.CTkButton(header, text="◀ Prev", width=100,
+                                 command=self._go_prev_month)
+        prev_btn.pack(side='left', padx=5)
+
+        self.month_label = ctk.CTkLabel(header, text="",
+                                        font=("Helvetica", 18, "bold"))
+        self.month_label.pack(side='left', padx=10)
+
+        next_btn = ctk.CTkButton(header, text="Next ▶", width=100,
+                                 command=self._go_next_month)
+        next_btn.pack(side='left', padx=5)
+
+        # Legend
+        legend = ctk.CTkLabel(header,
+                              text="Click a sample to jump to it • Days with 5+ samples have a 'Show all' pop-out",
+                              font=("Helvetica", 12))
+        legend.pack(side='right', padx=10)
+
+        # Month grid
+        self.month_grid_frame = ttk.Frame(outer)
+        self.month_grid_frame.pack(fill='both', expand=True)
+
+        # -- New section for the all samples treeview --
+        all_samples_frame = ctk.CTkFrame(outer)
+        all_samples_frame.pack(fill="both", expand=True, pady=(10, 0))
+
+        all_samples_label = ctk.CTkLabel(all_samples_frame, text="All Samples with Due Dates",
+                                         font=("Helvetica", 16, "bold"))
+        all_samples_label.pack(pady=(0, 5))
+
+        # Define columns for the new treeview
+        columns = ["UNH#", "Sample_Name", "Project", "Due_Date"]
+        self.all_samples_tree = ttk.Treeview(all_samples_frame, columns=columns, show='headings',
+                                             style="mystyle.Treeview")
+
+        for col in columns:
+            self.all_samples_tree.heading(col, text=col)
+            self.all_samples_tree.column(col, width=150, minwidth=50)
+
+        # Add scrollbars for the new treeview
+        y_scrollbar = ctk.CTkScrollbar(all_samples_frame, command=self.all_samples_tree.yview)
+        y_scrollbar.pack(side="right", fill="y")
+
+        x_scrollbar = ctk.CTkScrollbar(all_samples_frame, orientation="horizontal", command=self.all_samples_tree.xview)
+        x_scrollbar.pack(side="bottom", fill="x")
+
+        self.all_samples_tree.configure(yscrollcommand=y_scrollbar.set, xscrollcommand=x_scrollbar.set)
+        self.all_samples_tree.pack(side="left", fill="both", expand=True)
+
+        # Bind double-click event to focus on the selected sample
+        self.all_samples_tree.bind("<Double-1>", self._on_all_samples_tree_double_click)
+
+        # Set current month/year once
+        today = datetime.date.today()
+        self.current_year = today.year
+        self.current_month = today.month
+
+        # Render initial month
+        self._render_calendar_month()
+        # Populate the new treeview on startup
+        self._populate_all_samples_tree()
+
+    # Batch update methods from second version
+    def on_tree_click(self, event):
+        col = self.tree.identify_column(event.x)
+        rowid = self.tree.identify_row(event.y)
+        region = self.tree.identify("region", event.x, event.y)
+        print(f"Click at row={rowid}, col={col}, region={region}")
+        if not rowid or region not in ("cell", "tree"):
+            return
+
+        # Check if click is on checkbox column
+        if col == '#1':  # First column is the checkbox
+            self.toggle_selection(rowid)
+            # restore visual selection
+            self.tree.focus(rowid)
+            self.tree.selection_set(rowid)
+            return "break"
+
+    def toggle_selection(self, item):
+        current = self.tree.set(item, 'Select')
+        print(f"Before toggle: item={item}, Select='{current}'")
+        if current == self.CHECKED:
+            self.tree.set(item, 'Select', self.UNCHECKED)
+            self.selected_samples.pop(item, None)
+            print(f"Deselected item {item}")
+        else:
+            values = self.tree.item(item, 'values')
+            cols = self.data.columns.tolist()
+            sample_data = {cols[i]: values[i + 1] for i in range(min(len(cols), len(values) - 1))}
+            self.tree.set(item, 'Select', self.CHECKED)
+            self.selected_samples[item] = sample_data
+            print(
+                f"Selected item {item}: UNH#={sample_data.get('UNH#', '')} Sample_Name={sample_data.get('Sample_Name', '')}")
+        self.update_selected_count()
+
+    def select_all_samples(self):
+        """Select all currently visible samples."""
+        for item in self.tree.get_children():
+            if item not in self.selected_samples:
+                self.toggle_selection(item)
+
+    def deselect_all_samples(self):
+        """Deselect all samples."""
+        for item in list(self.selected_samples.keys()):
+            self.toggle_selection(item)
+
+    def update_selected_count(self):
+        """Update the selected count label."""
+        count = len(self.selected_samples)
+        self.selected_count_label.configure(text=f"{count} samples selected")
+
+    def open_batch_update(self):
+        """Open the batch update dialog."""
+        if not self.selected_samples:
+            messagebox.showwarning("No Selection", "Please select at least one sample for batch update.")
+            return
+
+        # Convert selected samples to list format
+        selected_list = list(self.selected_samples.values())
+
+        # Open the batch update dialog
+        dialog = BatchUpdateDialog(self, selected_list)
+        # Don't use wait_window as it can cause issues with customtkinter
+
+    def perform_batch_update(self, samples, analysis_type, status, notes, due_date_done):
+        """
+        Perform the actual batch update in the database,
+        with an option to mark the Due_Date as complete.
+        """
+        print(f"Performing batch update for {len(samples)} samples")
+        print(f"Analysis: {analysis_type}, Status: {status}")
+
+        conn = self._get_db_connection()
+        if not conn:
+            return 0
+
+        cursor = conn.cursor()
+        success_count = 0
+
+        try:
+            if conn.autocommit:
+                conn.autocommit = False
+
+            for sample in samples:
+                unh_id = sample.get('UNH#', '')
+                if not unh_id:
+                    continue
+
+                # Build the SET clauses and parameters
+                set_clauses = []
+                params = []
+
+                # Add the analysis update clause
+                if analysis_type and status:
+                    set_clauses.append(f"[{analysis_type}] = ?")
+                    params.append(status)
+
+                # Add the due date update clause if checked
+                if due_date_done:
+                    set_clauses.append("Due_Date = ?")
+                    params.append(None)  # Set to NULL in the database
+
+                # If no fields are to be updated, skip this sample
+                if not set_clauses:
+                    print(f"No fields to update for UNH#: {unh_id}. Skipping.")
+                    continue
+
+                # Check if a record for the UNH# already exists
+                check_query = "SELECT COUNT(*) FROM [WRRC sample analysis requested] WHERE [UNH#] = ?"
+                cursor.execute(check_query, (unh_id,))
+                record_exists = cursor.fetchone()[0] > 0
+
+                if record_exists:
+                    # A record exists, so perform an UPDATE
+                    print(f"Updating existing record for UNH#: {unh_id}")
+                    update_query = f"UPDATE [WRRC sample analysis requested] SET {', '.join(set_clauses)} WHERE [UNH#] = ?"
+                    final_params = params + [unh_id]
+                    cursor.execute(update_query, final_params)
+                else:
+                    # No record exists, so perform an INSERT
+                    print(f"Inserting new record for UNH#: {unh_id}")
+                    columns = [f"[UNH#]"] + [clause.split('=')[0].strip() for clause in set_clauses]
+                    placeholders = ['?'] * len(columns)
+                    final_params = [unh_id] + params
+
+                    insert_query = f"INSERT INTO [WRRC sample analysis requested] ({', '.join(columns)}) VALUES ({', '.join(placeholders)})"
+                    cursor.execute(insert_query, final_params)
+
+                success_count += 1
+
+            conn.commit()
+            print(f"Successfully processed {success_count} samples.")
+
+        except Exception as e:
+            conn.rollback()
+            print(f"Error during batch update: {str(e)}")
+            raise
+        finally:
+            cursor.close()
+            conn.close()
+
+        return success_count
+
+    def refresh_data(self):
+        """Refresh the data from the database and update the display."""
+        self.selected_samples.clear()
+        self.data = self._load_data_from_database()
+        self.show_all()
+        self.update_selected_count()
+        self._render_calendar_month()
+        self._populate_all_samples_tree()
+
+    def edit_selected_samples(self):
+        """Edit the selected samples - redirect to existing edit functionality."""
+        if not self.selected_samples:
+            messagebox.showwarning("No Selection", "Please select samples to edit.")
+            return
+
+        # If only one sample selected, use existing edit_selected_record
+        if len(self.selected_samples) == 1:
+            # Get the first (and only) selected item
+            item_id = list(self.selected_samples.keys())[0]
+            # Simulate selection in tree
+            self.tree.selection_set(item_id)
+            self.edit_selected_record()
+        else:
+            # Multiple samples selected - could open batch edit dialog
+            messagebox.showinfo("Multiple Selection",
+                                f"Batch editing {len(self.selected_samples)} samples is not yet implemented. Please select one sample at a time for detailed editing.")
 
     # Add the populate_edit_form method
     def populate_edit_form(self):
@@ -1574,296 +2015,48 @@ class SampleTrackerApp(ctk.CTk):
         sample_name = self.selected_record.get("Sample_Name", "")
         self.edit_status_var.set(f"Editing record: UNH# {unh_id}, Sample Name: {sample_name}")
     # Add the save_edited_record method
-    def save_edited_record(self):
-        """Save the edited record back to the database."""
-        if not self.selected_record:
-            messagebox.showwarning("No Record", "No record is selected for editing.")
+    def edit_selected_record(self):
+        """Edit the selected record from the search results."""
+        selected_items = self.tree.selection()
+        if not selected_items:
+            messagebox.showwarning("No Selection", "Please select a record to edit.")
             return
 
-        try:
-            # Get connection to database
-            conn = self._get_db_connection()
-            if not conn:
-                self.edit_status_var.set("Error: Could not connect to the database")
-                return
+        # Get the selected item
+        item_id = selected_items[0]
 
-            cursor = conn.cursor()
+        # Get the values from the selected item
+        item_values = self.tree.item(item_id, "values")
 
-            # Begin transaction
-            if conn.autocommit:
-                conn.autocommit = False
+        # Get column names (skip the Select column)
+        columns = self.data.columns.tolist()
 
-            # Update sample info table
-            success_sample = self._update_sample_info_record(cursor)
-
-            # Update analysis table
-            success_analysis = self._update_analysis_record(cursor)
-
-            if success_sample or success_analysis:
-                # Commit transaction
-                conn.commit()
-                self.edit_status_var.set("Record updated successfully")
-
-                # Show the "Saved" message
-                self.saved_label.pack(side="right", padx=20)
-
-                # Schedule the label to disappear after 3 seconds
-                self.after(3000, lambda: self.saved_label.pack_forget())
-
-                # Refresh the data
-                self.data = self._load_data_from_database()
-                self.populate_treeview(self.data)
-
-                # Switch back to search tab after a brief delay to show the "Saved" message
-                # self.after(1500, lambda: self.tabview.set("Search"))
+        # Create a dictionary from column names and values (skip first value which is checkbox)
+        record_dict = {}
+        for i, col in enumerate(columns):
+            if i + 1 < len(item_values):  # +1 to skip checkbox column
+                record_dict[col] = item_values[i + 1]
             else:
-                conn.rollback()
-                self.edit_status_var.set("No changes were made")
+                record_dict[col] = ""
 
-            cursor.close()
-            conn.close()
+        # Store the selected record
+        self.selected_record = record_dict
 
-        except Exception as e:
-            print(f"Error saving edited record: {str(e)}")
-            print(traceback.format_exc())
-            self.edit_status_var.set(f"Error: {str(e)}")
-            messagebox.showerror("Save Error", f"Error saving changes: {str(e)}")
+        # Load analysis data for this record
+        unh_id = record_dict.get("UNH#", "")
+        if unh_id:
+            self.load_analysis_data(unh_id)
+        else:
+            self.analysis_data = None
 
-            # Try to rollback if there's a connection
-            try:
-                if conn and not conn.autocommit:
-                    conn.rollback()
-                    cursor.close()
-                    conn.close()
-            except:
-                pass
+        # Switch to the Edit tab
+        self.tabview.set("Edit")
 
-    def _update_sample_info_record(self, cursor):
-        """Update a record in the WRRC sample info table."""
-        try:
-            # Get the primary key value
-            unh_id = self.selected_record.get("UNH#", "")
-            if not unh_id:
-                return False
+        # Populate the edit form
+        self.populate_edit_form()
 
-            # Build SET clause and parameters for the UPDATE statement
-            set_clauses = []
-            params = []
-
-            for field, entry in self.sample_info_entries.items():
-                # Skip UNH# as it's our key
-                if field == "UNH#":
-                    continue
-
-                # Get the current value and the new value
-                current_value = self.selected_record.get(field, "")
-                new_value = entry.get().strip()
-
-                # If there's a difference, add to the update
-                if str(current_value) != new_value:
-                    # Handle special fields
-                    if field == "DO%":
-                        set_clauses.append("[DO%] = ?")
-                    else:
-                        set_clauses.append(f"[{field}] = ?")
-
-                    # Handle empty strings as NULL for certain fields
-                    if not new_value and field in ['Collection_Date', 'Collection_Time', 'pH', 'Cond', 'Spec_Cond',
-                                                   'DO_Conc', 'DO%', 'Temperature', 'Salinity']:
-                        params.append(None)
-                    else:
-                        params.append(new_value)
-
-            # If no changes, return early
-            if not set_clauses:
-                print("No changes to update in sample info")
-                return False
-
-            # Build the query
-            query = f"UPDATE [WRRC sample info] SET {', '.join(set_clauses)} WHERE [UNH#] = ?"
-            params.append(unh_id)
-
-            print(f"Sample update query: {query}")
-            print(f"Parameters: {params}")
-
-            # Execute the query
-            cursor.execute(query, params)
-
-            return True
-
-        except Exception as e:
-            print(f"Error updating sample info: {str(e)}")
-            raise
-
-    def _update_analysis_record(self, cursor):
-        """Update a record in the WRRC sample analysis requested table."""
-        try:
-            # Get the primary key value
-            unh_id = self.selected_record.get("UNH#", "")
-            if not unh_id:
-                return False
-
-            # Check if we have analysis data
-            if not self.analysis_data:
-                # Check if we have any new values to insert
-                has_new_values = False
-                for field, entry in self.analysis_entries.items():
-                    if field == "Due_Date":
-                        # If analysis is not completed, check if date entry has value
-                        if not self.analysis_completed_var.get() and hasattr(entry, 'get_date'):
-                            has_new_values = True
-                            break
-                    elif entry.get().strip():
-                        has_new_values = True
-                        break
-
-                if has_new_values:
-                    # Need to INSERT a new record
-                    return self._insert_new_analysis_record(cursor, unh_id)
-                else:
-                    return False
-
-            # We have existing analysis data, so update it
-            set_clauses = []
-            params = []
-
-            for field, entry in self.analysis_entries.items():
-                # Get the current value from the analysis data
-                current_value = self.analysis_data.get(field, "")
-
-                # Special handling for Due_Date field
-                if field == "Due_Date":
-                    if self.analysis_completed_var.get():
-                        # Analysis is completed, set Due_Date to NULL
-                        # Only add to update if current value is not already NULL
-                        if current_value is not None and current_value != "":
-                            print(f"Setting Due_Date to NULL for UNH# {unh_id} (analysis completed)")
-                            set_clauses.append(f"[{field}] = ?")
-                            params.append(None)  # This will set it to NULL in the database
-                    elif hasattr(entry, 'get_date'):
-                        # Analysis not completed, get date from DateEntry
-                        try:
-                            new_value = entry.get_date().strftime('%Y-%m-%d')
-                            # If different from current, add to update
-                            if str(current_value) != new_value:
-                                print(f"Updating Due_Date to {new_value} for UNH# {unh_id}")
-                                set_clauses.append(f"[{field}] = ?")
-                                params.append(new_value)
-                        except Exception as e:
-                            print(f"Error getting date from DateEntry: {str(e)}")
-                else:
-                    # Regular fields
-                    new_value = entry.get().strip()
-
-                    # If there's a difference, add to the update
-                    if str(current_value) != new_value:
-                        set_clauses.append(f"[{field}] = ?")
-
-                        # Handle empty strings as NULL for appropriate fields
-                        if not new_value:
-                            params.append(None)
-                        else:
-                            params.append(new_value)
-
-            # If no changes, return early
-            if not set_clauses:
-                print("No changes to update in analysis data")
-                return False
-
-            # Build the query
-            query = f"UPDATE [WRRC sample analysis requested] SET {', '.join(set_clauses)} WHERE [UNH#] = ?"
-            params.append(unh_id)
-
-            print(f"Analysis update query: {query}")
-            print(f"Parameters: {params}")
-
-            # Execute the query
-            cursor.execute(query, params)
-            print(f"Successfully updated analysis data for UNH# {unh_id}")
-
-            return True
-
-        except Exception as e:
-            print(f"Error updating analysis info: {str(e)}")
-            raise
-
-    def _insert_new_analysis_record(self, cursor, unh_id):
-        """Insert a new record in the WRRC sample analysis requested table."""
-        try:
-            # Build columns and values for the INSERT statement
-            columns = ["[UNH#]"]
-            values = [unh_id]
-
-            for field, entry in self.analysis_entries.items():
-                # Handle Due_Date field which uses DateEntry
-                if field == "Due_Date":
-                    if not self.analysis_completed_var.get() and hasattr(entry, 'get_date'):
-                        due_date = entry.get_date().strftime('%Y-%m-%d')
-                        if due_date:
-                            columns.append(f"[{field}]")
-                            values.append(due_date)
-                    # If analysis is completed, don't add Due_Date (it will be NULL by default)
-                else:
-                    # Regular entry fields
-                    value = entry.get().strip()
-                    if value:
-                        columns.append(f"[{field}]")
-                        values.append(value)
-
-            # If only UNH#, no need to insert
-            if len(columns) <= 1:
-                return False
-
-            # Build the query
-            query = f"INSERT INTO [WRRC sample analysis requested] ({', '.join(columns)}) VALUES ({', '.join(['?'] * len(values))})"
-
-            print(f"Analysis insert query: {query}")
-            print(f"Parameters: {values}")
-
-            # Execute the query
-            cursor.execute(query, values)
-
-            return True
-
-        except Exception as e:
-            print(f"Error inserting analysis info: {str(e)}")
-            raise
-
-    def _insert_new_analysis_record(self, cursor, unh_id):
-        """Insert a new record in the WRRC sample analysis requested table."""
-        try:
-            # Build columns and values for the INSERT statement
-            columns = ["[UNH#]"]
-            values = [unh_id]
-
-            for field, entry in self.analysis_entries.items():
-                value = entry.get().strip()
-                if value:
-                    columns.append(f"[{field}]")
-                    values.append(value)
-
-            # If only UNH#, no need to insert
-            if len(columns) <= 1:
-                return False
-
-            # Build the query
-            query = f"INSERT INTO [WRRC sample analysis requested] ({', '.join(columns)}) VALUES ({', '.join(['?'] * len(values))})"
-
-            print(f"Analysis insert query: {query}")
-            print(f"Parameters: {values}")
-
-            # Execute the query
-            cursor.execute(query, values)
-
-            return True
-
-        except Exception as e:
-            print(f"Error inserting analysis info: {str(e)}")
-            raise
-
-    # First, add the edit button to the search tab
     def create_search_tab(self):
-        """Create the search tab contents."""
+        """Create the search tab contents with batch update functionality."""
         search_tab = self.tabview.tab("Search")
 
         # Create search frame
@@ -1902,7 +2095,6 @@ class SampleTrackerApp(ctk.CTk):
         filter_frame = ctk.CTkFrame(search_frame)
         filter_frame.grid(row=2, column=0, columnspan=3, pady=5, sticky="w")
 
-        self.filter_by_date_var = ctk.BooleanVar(value=True)  # Default to checked
         self.filter_by_date_checkbox = ctk.CTkCheckBox(
             filter_frame,
             text=f"Limit results to samples less than {self.years_limit} year old (improves search speed)",
@@ -1933,16 +2125,56 @@ class SampleTrackerApp(ctk.CTk):
         edit_button = ctk.CTkButton(
             button_frame,
             text="Edit Selected",
-            command=self.edit_selected_record
+            command=self.edit_selected_samples
         )
         edit_button.pack(side="left", padx=10)
 
-        # Treeview for results
+        # Batch operations frame
+        batch_frame = ctk.CTkFrame(search_frame)
+        batch_frame.grid(row=4, column=0, columnspan=3, pady=5)
+
+        select_all_button = ctk.CTkButton(
+            batch_frame,
+            text="Select All",
+            command=self.select_all_samples,
+            width=120
+        )
+        select_all_button.pack(side="left", padx=5)
+
+        deselect_all_button = ctk.CTkButton(
+            batch_frame,
+            text="Deselect All",
+            command=self.deselect_all_samples,
+            width=120
+        )
+        deselect_all_button.pack(side="left", padx=5)
+
+        self.selected_count_label = ctk.CTkLabel(batch_frame, text="0 samples selected")
+        self.selected_count_label.pack(side="left", padx=20)
+
+        batch_update_button = ctk.CTkButton(
+            batch_frame,
+            text="Batch Update Analysis",
+            command=self.open_batch_update,
+            width=180
+        )
+        batch_update_button.pack(side="right", padx=5)
+
+        # Treeview for results with checkbox column
         treeview_frame = ctk.CTkFrame(search_tab)
         treeview_frame.pack(fill="both", expand=True, pady=10)
 
-        # CustomTkinter doesn't have its own treeview, so we'll use the ttk one
-        self.tree = self.create_styled_treeview(treeview_frame)
+        # Add checkbox column to the columns
+        columns = ['Select'] + self.data.columns.tolist()
+        self.tree = ttk.Treeview(treeview_frame, columns=columns, show='headings', style="mystyle.Treeview")
+
+        # Configure columns
+        self.tree.heading('Select', text='Select')
+        self.tree.column('Select', width=80, minwidth=60, anchor='center')
+
+        for col in self.data.columns:
+            self.tree.heading(col, text=col)
+            self.tree.column(col, width=150, minwidth=50)
 
         # Add scrollbars
         y_scrollbar = ctk.CTkScrollbar(treeview_frame, command=self.tree.yview)
@@ -1954,90 +2186,45 @@ class SampleTrackerApp(ctk.CTk):
         self.tree.configure(yscrollcommand=y_scrollbar.set, xscrollcommand=x_scrollbar.set)
         self.tree.pack(side="left", fill="both", expand=True)
 
+        # Bind click events for checkbox functionality
+        self.tree.bind('<Button-1>', self.on_tree_click)
+
         # Populate the tree with data
         self.populate_treeview(self.data)
 
         # Bind double-click event to edit function
-        self.tree.bind("<Double-1>", lambda event: self.edit_selected_record())
-
-    def create_styled_treeview(self, parent):
-        """Create a ttk.Treeview with styling to match CustomTkinter."""
-        import tkinter as tk
-        from tkinter import ttk
-
-        # Create a style for the treeview
-        style = ttk.Style()
-
-        # Configure the treeview style
-        current_theme = ctk.get_appearance_mode().lower()
-
-        if current_theme == "dark":
-            # Dark theme settings
-            style.configure(
-                "Custom.Treeview",
-                background="#2a2d2e",
-                foreground="white",
-                fieldbackground="#2a2d2e",
-                rowheight=40,
-                font=('Helvetica', 12)
-            )
-            style.configure(
-                "Custom.Treeview.Heading",
-                background="#1f6aa5",
-                foreground="white",
-                font=('Helvetica', 13, 'bold')
-            )
-        else:
-            # Light theme settings
-            style.configure(
-                "Custom.Treeview",
-                background="white",
-                foreground="black",
-                fieldbackground="white",
-                rowheight=40,
-                font=('Helvetica', 12)
-            )
-            style.configure(
-                "Custom.Treeview.Heading",
-                background="#1f6aa5",
-                foreground="white",
-                font=('Helvetica', 13, 'bold')
-            )
-
-        # Create the treeview with the columns from the data
-        columns = self.data.columns.tolist() if not self.data.empty else []
-        tree = ttk.Treeview(
-            parent,
-            columns=columns,
-            show='headings',
-            style="Custom.Treeview"
-        )
-
-        # Configure the columns
-        for col in columns:
-            tree.heading(col, text=col)
-            tree.column(col, width=150, minwidth=50)
-
-        return tree
+        self.tree.bind("<Double-1>", lambda event: self.edit_selected_record() if self.tree.identify_column(
+            event.x) != '#1' else None)
 
     def populate_treeview(self, df):
-        """Populate the treeview with data from the DataFrame."""
+        """Populate the treeview with data from the DataFrame including checkbox column."""
         # Clear the current content of the treeview
         for item in self.tree.get_children():
             self.tree.delete(item)
+
+        # Clear selected samples
+        self.selected_samples.clear()
 
         if df.empty:
             print("No data to populate treeview")
             return
 
-        # Insert rows into the treeview
+        # Insert rows into the treeview with checkbox column
         for _, row in df.iterrows():
             # Convert any non-string values to strings
-            values = [str(val) if not isinstance(val, str) and val is not None else "" if val is None else val for val
-                      in row]
-            self.tree.insert("", "end", values=values)
+            values = []
+            for val in row:
+                if pd.isna(val):
+                    values.append("")
+                else:
+                    values.append(str(val))
+
+            # Add checkbox (unchecked) as first value
+            all_values = [self.UNCHECKED] + values
+            self.tree.insert("", "end", values=all_values)
 
         print(f"Treeview populated with {len(df)} rows.")
+        self.update_selected_count()
 
     def show_all(self):
         """Display all records, but respect the date filter if enabled."""
@@ -2382,6 +2569,8 @@ class SampleTrackerApp(ctk.CTk):
             print(f"  {col}")
 
         # Define fields we're interested in
+
+        # Define fields we're interested in, including Due_Date
         field_mappings = {
             'UNH#': 'unh_id',
             'Sample_Name': 'sample_name',
@@ -2411,7 +2600,8 @@ class SampleTrackerApp(ctk.CTk):
             'Dilution': 'dilution',
             'Start Date/Time': 'start_datetime',
             'Atm_Pressure_mb': 'atm_pressure',
-            'ORP_mV': 'orp_mv'
+            'ORP_mV': 'orp_mv',
+            'Due_Date': 'due_date'  # <-- Added Due_Date to the mapping
         }
 
         # List of possible analysis columns
@@ -2948,6 +3138,7 @@ class SampleTrackerApp(ctk.CTk):
             filtered = sample.get('filtered', '')
             preservation = sample.get('preservation', '')
             filter_volume = sample.get('filter_volume', '')
+            due_date = sample.get('due_date', '')
 
             # Create mapping between Excel analysis names and database column names
             analysis_mapping = {
@@ -2996,8 +3187,11 @@ class SampleTrackerApp(ctk.CTk):
             if filter_volume:
                 columns.append("[Filter_Volume]")
                 values.append(str(filter_volume))
+            if due_date:
+                columns.append("Due_Date")
+                values.append(due_date)
 
-            # Add analysis fields
+            # Add analysis fields (THIS LOOP IS CORRECT)
             for analysis, is_required in analyses.items():
                 if is_required:
                     db_column = analysis_mapping.get(analysis)
@@ -3005,11 +3199,10 @@ class SampleTrackerApp(ctk.CTk):
                         columns.append(f"[{db_column}]")
                         values.append("required")
 
-            # If we have any data to insert
-            if len(columns) > 1:  # At least UNH# plus one more field
-                # Build the SQL query
+            # The query construction and execution should be outside the loop.
+            # This is the correct indentation and placement.
+            if len(columns) > 1:
                 query = f"INSERT INTO [WRRC sample analysis requested] ({', '.join(columns)}) VALUES ({', '.join(['?'] * len(values))})"
-
                 try:
                     cursor.execute(query, values)
                     print(f"Inserted analysis request for UNH# {unh_id} with {len(columns) - 1} fields")
@@ -3024,7 +3217,6 @@ class SampleTrackerApp(ctk.CTk):
         except Exception as e:
             print(f"Error inserting Log Book analysis data: {str(e)}")
             raise
-
     # Update these existing methods to work with the new dual-import system
 
     def preview_excel_data(self):
@@ -3681,6 +3873,7 @@ class SampleTrackerApp(ctk.CTk):
             sample_type = sample.get('sample_type', '')
             collection_date = sample.get('collection_date', '')
             collection_time = sample.get('collection_time', '')
+            due_date = sample.get('due_date', '')
 
             # Create mapping between Excel analysis names and database column names
             analysis_mapping = {
@@ -3716,6 +3909,9 @@ class SampleTrackerApp(ctk.CTk):
             if containers:
                 columns.append("[Containers]")
                 values.append(str(containers))
+            if due_date:
+                columns.append("Due_Date")
+                values.append(due_date)
 
             if filtered:
                 columns.append("[Filtered]")
@@ -3754,10 +3950,8 @@ class SampleTrackerApp(ctk.CTk):
                         values.append("required")
 
             # If we have any data to insert
-            if len(columns) > 1:  # At least UNH# plus one more field
-                # Build the SQL query
+            if len(columns) > 1:
                 query = f"INSERT INTO [WRRC sample analysis requested] ({', '.join(columns)}) VALUES ({', '.join(['?'] * len(values))})"
-
                 try:
                     cursor.execute(query, values)
                     print(f"Inserted analysis request for UNH# {unh_id} with {len(columns) - 1} fields")
@@ -3770,7 +3964,7 @@ class SampleTrackerApp(ctk.CTk):
                 return False
 
         except Exception as e:
-            print(f"Error inserting sample analysis requested: {str(e)}")
+            print(f"Error inserting Log Book analysis data: {str(e)}")
             raise
 
     def populate_preview_treeviews(self, project_df, sample_df):
